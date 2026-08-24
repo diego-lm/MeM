@@ -1,0 +1,11 @@
+# Los .bat los lee cmd.exe buscando por posición, y con finales de línea Unix
+# se le corre el offset y se come el primer carácter de una línea ("REM" → "EM",
+# comando no encontrado). Pasa según el tamaño del archivo, así que uno corto
+# parece andar y el de al lado no: hay que forzar CRLF, no confiar en el
+# core.autocrlf de cada máquina (en Linux/macOS viene apagado).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# El resto, normalizado a LF en el repo y a lo que corresponda al hacer checkout.
+* text=auto

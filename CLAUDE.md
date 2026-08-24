@@ -10,7 +10,17 @@ App personal de Diego: backend FastAPI (`mem/`) + PWA sin build step (`mem/stati
 
 Es el instalador unificado: bootstrap en máquina nueva (`irm .../install.ps1 | iex`) o actualización in-place (`.\install.ps1` corrido desde un checkout — detecta que ya está dentro del repo por `pyproject.toml` en `$PSScriptRoot` y hace `git pull` en vez de clonar). Si cambian los pasos de instalación (dependencias, extras opcionales, `config.toml`, autostart), actualizar el script y `MANUAL.md` juntos.
 
-Dos cosas que ya costaron encontrarlas y no hay que deshacer: el archivo va con **BOM UTF-8** (sin él, Windows PowerShell 5.1 lo lee con el codepage del sistema y los acentos rompen el parser en líneas que ni los tienen), y **el primer `python` del PATH no es confiable** — puede ser el venv de otro proyecto, así que se filtran los `\venv\` y se pregunta la versión.
+`Instalar-MeM.bat` es el doble clic: llama a `install.ps1` con `-ExecutionPolicy Bypass` (solo para ese proceso) y hace `pause` al final para que se lea el resultado. Deliberadamente NO es un `.exe`: uno sin firmar dispara SmartScreen y habría que recompilarlo en cada cambio del `.ps1`.
+
+Tres cosas que ya costaron encontrarlas y no hay que deshacer:
+
+- `install.ps1` va con **BOM UTF-8**. Sin él, Windows PowerShell 5.1 lo lee con el codepage del sistema y los acentos rompen el parser en líneas que ni los tienen.
+- Los `.bat` van con **CRLF y sin BOM**, forzado por `.gitattributes`. `cmd.exe` los lee buscando por posición y con LF se le corre el offset y se come el primer carácter de una línea (`REM` → `EM`). Depende del tamaño del archivo, así que uno corto parece andar y el de al lado no — no confiar en el `core.autocrlf` de cada máquina.
+- **El primer `python` del PATH no es confiable**: puede ser el venv de otro proyecto, así que se filtran los `\venv\` y se pregunta la versión.
+
+## El repo es privado
+
+Por eso NO hay one-liner de `raw.githubusercontent` (devuelve 404 sin credenciales — verificado). El camino documentado es `gh auth login` + `gh repo clone`. Si algún día pasa a público, el one-liner vuelve a servir y hay que actualizar MANUAL.md y README.md juntos.
 
 ## Componentes (winget)
 
