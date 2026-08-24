@@ -1,0 +1,36 @@
+[project]
+name = "mem"
+version = "0.1.0"
+description = "MeM — memoria persistente + chats por modos sobre hamuQ"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "anthropic",
+    "openai",
+    "python-frontmatter",
+    "pypdf",                 # texto de PDFs adjuntos (puro python, sin binarios)
+    "pystray",               # icono de bandeja (scripts/mem_tray.py bajo pythonw)
+    # búsqueda híbrida (indice.py + embed.py): embeddings ONNX en CPU, sin torch.
+    # Ya venían transitivos de faster-whisper; declarados para un install limpio.
+    "numpy",
+    "onnxruntime",
+    "tokenizers",
+    "huggingface_hub",
+]
+
+# ponytail: audio local y offline. No es requisito —sin esto un audio queda
+# pendiente con el motivo—, pero es la única vía de transcripción que no depende
+# de un servidor externo: LM Studio (probado 2026-08) no acepta audio.
+[project.optional-dependencies]
+audio = ["faster-whisper"]
+
+[project.scripts]
+mem = "mem.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mem"]

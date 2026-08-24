@@ -1,0 +1,31 @@
+{
+  "agentes": [
+    {
+      "id": "smart",
+      "nombre": "Smart",
+      "icono": "⚡",
+      "system_prompt": "",
+      "proveedor": "claude_code",
+      "modelo": "sonnet",
+      "base_url": "",
+      "api_key_env": ""
+    },
+    {
+      "id": "cheap",
+      "nombre": "Cheap",
+      "icono": "⌬",
+      "system_prompt": "",
+      "proveedor": "openai",
+      "modelo": "qwen/qwen3-vl-8b",
+      "base_url": "http://localhost:1234/v1",
+      "api_key_env": ""
+    }
+  ],
+  "asignaciones": {
+    "chat": "cheap",
+    "procesar": "smart",
+    "resumir": "smart",
+    "destilar": "smart",
+    "crear": "cheap"
+  }
+}

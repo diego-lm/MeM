@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# config real de esta máquina (secretos, rutas, hostname) — ver config.example.toml
+config.toml
+
+# logs del tray (runtime, crecen solos)
+mem_tray.log
+mem_tray.log.err
+
+# estado local/runtime de Claude Code (no compartido entre máquinas)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

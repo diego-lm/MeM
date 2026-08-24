@@ -1,0 +1,30 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mem",
+      "runtimeExecutable": "W:\\Dropbox\\PROJECTS\\_CODE\\MeM\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "mem.api:app",
+        "--port",
+        "8765",
+        "--reload"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "mem-8766",
+      "runtimeExecutable": "W:\\Dropbox\\PROJECTS\\_CODE\\MeM\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "mem.api:app",
+        "--port",
+        "8766"
+      ],
+      "port": 8766
+    }
+  ]
+}

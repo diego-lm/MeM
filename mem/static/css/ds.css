@@ -1,0 +1,164 @@
+/* Modernist — design-system tokens and component classes. This file is the source of truth for the system's look; retune it here and see readme.md. */
+/* Variable font: un solo archivo cubre 100-900, así que un rango en font-weight
+   basta — no hace falta un @font-face por peso como con Figtree/Caprasimo. */
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:100 900; font-display:swap; src:url("../fonts/archivo-variable.woff2") format("woff2"); }
+/* Tipografías del knob "fuente" en Ajustes (pedido 2026-08-09) — mismo trato:
+   un archivo variable, vendorizado una vez, sin CDN en runtime (sw.js las
+   precachea junto al resto del shell). */
+@font-face { font-family:"Inter"; font-style:normal; font-weight:100 900; font-display:swap; src:url("../fonts/inter-variable.woff2") format("woff2"); }
+@font-face { font-family:"Fraunces"; font-style:normal; font-weight:100 900; font-display:swap; src:url("../fonts/fraunces-variable.woff2") format("woff2"); }
+
+:root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201e1d;
+  --color-accent: #ec3013;
+  --color-accent-2: #e15b47;
+  --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
+
+  /* Texto secundario y de metadatos. Cada pantalla escribía su propio color-mix
+     (42%, 45%, 48%, 52%, 55%, 60%, 62%, 68%…): trece tonos distintos para la
+     misma jerarquía, y los más bajos no llegaban al 4.5:1 sobre el fondo crema.
+     Dos escalones definidos acá, derivados de --color-text: sirven igual para
+     cualquier paleta y para el tema oscuro. */
+  --text-2: color-mix(in srgb, var(--color-text) 78%, transparent);   /* ~6.3:1 */
+  --text-3: color-mix(in srgb, var(--color-text) 68%, transparent);   /* ~5.3:1 */
+
+  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
+     same step of any role matches the others in visual value. */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  --color-accent-100: #fff2ef;
+  --color-accent-200: #ffe0d9;
+  --color-accent-300: #ffc4b8;
+  --color-accent-400: #ff9783;
+  --color-accent-500: #ff563c;
+  --color-accent-600: #dd2b0f;
+  --color-accent-700: #ae1800;
+  --color-accent-800: #7c1405;
+  --color-accent-900: #4d170e;
+
+  --color-accent-2-100: #fff2ef;
+  --color-accent-2-200: #ffe0da;
+  --color-accent-2-300: #ffc4b9;
+  --color-accent-2-400: #ff9784;
+  --color-accent-2-500: #ef6853;
+  --color-accent-2-600: #c94b39;
+  --color-accent-2-700: #9e3526;
+  --color-accent-2-800: #71261b;
+  --color-accent-2-900: #471d16;
+
+  /* Único color que no viene del sistema Modernist (que es mono-rojo): la app
+     necesita una señal binaria real de "en línea"/"OK" distinta del rojo de
+     estado (pedido 2026-08-08, ver mem-app-estado). Verde neutro, no una rampa. */
+  --color-ok: #7a8a5e;
+
+  /* Lo privado va en ROJO SIEMPRE, no en el acento de la paleta (pedido
+     2026-08-09): con "Fósforo" el candado salía verde y con "Ámbar" dorado —
+     el mismo aviso pintado de seis colores distintos deja de leerse como
+     aviso. Este es el rojo del sistema y NINGUNA paleta lo redefine; el tema
+     oscuro sí lo aclara (app.css) para que se vea sobre fondo oscuro. */
+  --color-priv: #ec3013;
+
+  --font-heading: "Archivo", system-ui, sans-serif;
+  --font-heading-weight: 800;
+  --font-body: "Archivo", system-ui, sans-serif;
+  /* La mono de los metadatos, kickers y chips. Estaba escrita a mano 177 veces
+     por toda la app; acá se cambia una vez y cambia en todas. */
+  --font-mono: ui-monospace, Menlo, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+
+  /* Sin elevación: el sistema separa con reglas de 1-2px, no con sombra. */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+
+  /* Escala tipográfica — 8 pasos cubren los ~24 tamaños sueltos que había por
+     la app. --fs-1 es el piso legible (nada de la app pinta texto más chico
+     que esto); mono en mayúsculas con letter-spacing lee ~1 paso más chico
+     que Archivo, así que 11px mono ≈ 12px de cuerpo. */
+  --fs-1: 11px;   /* metadatos mono, kickers */
+  --fs-2: 12px;   /* secundario */
+  --fs-3: 13px;   /* cuerpo denso: items de menú, tablas */
+  --fs-4: 15px;   /* cuerpo */
+  --fs-5: 17px;   /* cuerpo grande, textarea */
+  --fs-6: 21px;   /* título de sheet */
+  --fs-7: 25px;   /* título de pantalla */
+  --fs-8: 32px;   /* display */
+  --lh-tight: 1.25;
+  --lh-base: 1.55;
+  --lh-loose: 1.7;
+
+  /* Ámbito de proyecto/sesión: ya no es un color por ámbito (mono-rojo no
+     tiene un segundo/tercer matiz que gastar) — personal/trabajo se leen por
+     forma (relleno vs. contorno, ver IconoAmbito en ui.js) y comparten
+     --color-text; privado es el único que sí usa color, el rojo único del
+     sistema, porque ES el estado que hay que destacar. */
+  --amb-personal: var(--color-text);
+  --amb-trabajo: var(--color-text);
+  --amb-privado: var(--color-priv);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Components — built with the tokens above. Plain CSS
+   on plain HTML: no JavaScript, no build step. Each class is documented in
+   readme.md and demonstrated in foundations/ and components/.
+   ══════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-size: 15px; line-height: 1.55; font-weight: 400; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+}
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+/* h5/h6 son casi tamaño de cuerpo (16/13px): un interlineado de display
+   (1.12) ahí se lee apretado. h1-h4 sí son grandes de verdad y lo conservan. */
+h5, h6 { line-height: var(--lh-tight); }
+h5 { font-size: 16px; }
+h6 { font-size: 13px; }
+h6 { letter-spacing: 0.08em; text-transform: uppercase; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+figure { margin: 0; }
+figcaption {
+  font-size: 11px; margin-top: var(--space-1);
+  color:var(--text-3);
+}
+/* Las clases de componente del kit Organic (.btn/.card/.tag/.dialog/.seg/.table/
+   .nav/.field/.elev-*/.hr/.text-muted/.washed) se borraron el 2026-08-06: MeM
+   pinta todo con sus propias clases mem-* (ui.js) y estilos inline, ninguna se
+   usaba. Lo que queda —tokens, fuentes y tipografía— sí es la base de todo.
+   ponytail: 33 tokens de las rampas (accent-300, neutral-500, --fs-7, --space-8…)
+   no los usa nadie hoy y SE QUEDAN: una escala con agujeros es peor que una
+   escala completa, y son variables CSS, no bytes que cuesten en runtime. */

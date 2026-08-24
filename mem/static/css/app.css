@@ -1,0 +1,221 @@
+/* MeM — capa de app sobre el design system Modernist (ds.css).
+   Portado 1:1 del prototipo de Claude Design (paletas, tema oscuro, keyframes,
+   scrollbars) + lo propio de la app (markdown, layout desktop). */
+
+html, body { height: 100%; }
+body { margin: 0; background: #d7d3d3; font-family: var(--font-body); }
+a { color: var(--color-accent-700); text-decoration: none; }
+a:hover { color: var(--color-accent-600); }
+
+/* — paletas (terracota = default del DS, sin bloque) — */
+[data-pal="sage"]     { --color-bg:#f2efe2; --color-surface:#e4e6d3; --color-accent:#728157; --color-accent-2:#c67139; --color-accent-700:#56633f; --color-accent-2-700:#8c491a; }
+[data-pal="sand"]     { --color-bg:#f9f4ed; --color-surface:#eee7db; --color-accent:#8c491a; --color-accent-2:#82796a; --color-accent-700:#643312; --color-accent-2-700:#645c50; }
+[data-pal="amber"]    { --color-bg:#f6efe2; --color-surface:#ece0c9; --color-accent:#a26a10; --color-accent-2:#6f6047; --color-accent-700:#7a4e08; --color-accent-2-700:#4a4030; }
+[data-pal="phosphor"] { --color-bg:#eef1e8; --color-surface:#dfe5d6; --color-accent:#3f6b45; --color-accent-2:#7a6a3f; --color-accent-700:#2c4e31; --color-accent-2-700:#574a2b; }
+[data-pal="clay"]     { --color-bg:#f6e9de; --color-surface:#eddacb; --color-accent:#b2622d; --color-accent-2:#8fa073; --color-accent-700:#8c491a; --color-accent-2-700:#56633f; }
+/* — paletas nuevas, "mixtas" (pedido 2026-08-09): contraste medido contra su
+   bg en la implementación (script ad-hoc, WCAG), todas ≥4.5:1 en las -700 —
+   mismo piso que las cinco de arriba. — */
+[data-pal="tinta"]    { --color-bg:#f0f1f4; --color-surface:#e1e4ea; --color-accent:#1d4fe0; --color-accent-2:#5b6472; --color-accent-700:#14388a; --color-accent-2-700:#3d4552; }
+[data-pal="indigo"]   { --color-bg:#f2f0f7; --color-surface:#e6e1f0; --color-accent:#5b3fd6; --color-accent-2:#9a5fb0; --color-accent-700:#402a9e; --color-accent-2-700:#723f84; }
+[data-pal="menta"]    { --color-bg:#eef4f1; --color-surface:#dcebe4; --color-accent:#12897a; --color-accent-2:#4f8f6d; --color-accent-700:#0b6459; --color-accent-2-700:#386b4f; }
+[data-pal="rosa"]     { --color-bg:#f7eef0; --color-surface:#eedde0; --color-accent:#a8385a; --color-accent-2:#8a5a52; --color-accent-700:#7a2640; --color-accent-2-700:#613f39; }
+[data-pal="cobalto"]  { --color-bg:#eef1f4; --color-surface:#dfe5ea; --color-accent:#1c5fa8; --color-accent-2:#8a7d6e; --color-accent-700:#144278; --color-accent-2-700:#6b5f52; }
+[data-pal="grafito"]  { --color-bg:#f0efec; --color-surface:#e2e0da; --color-accent:#b8860b; --color-accent-2:#5c5c5c; --color-accent-700:#8a640a; --color-accent-2-700:#3d3d3d; }
+
+/* — tema oscuro — */
+[data-theme="dark"] {
+  --color-bg:#1b1917; --color-surface:#262320; --color-text:#f6ecdb;
+  --color-divider: color-mix(in srgb, #f6ecdb 16%, transparent);
+  /* el rojo de lo privado, aclarado para fondo oscuro (mismo paso que el acento
+     claro de la rampa). Va acá y NO en cada paleta: es fijo a propósito. */
+  --color-priv:#ff6a4d;
+  /* pasos claros de la propia rampa de --color-accent (ds.css): mismo rojo,
+     no un matiz distinto — el sistema es mono-rojo también en oscuro. */
+  --color-accent:#ff9783; --color-accent-2:#ff9784; --color-accent-700:#ffc4b8; --color-accent-2-700:#ffc4b9;
+}
+[data-theme="dark"][data-pal="sage"]     { --color-bg:#161a14; --color-surface:#20261d; --color-accent:#aebf92; --color-accent-2:#f6a06b; --color-accent-700:#ccdbb2; --color-accent-2-700:#ffc6a5; }
+[data-theme="dark"][data-pal="sand"]     { --color-bg:#191715; --color-surface:#242120; --color-accent:#e0bc95; --color-accent-2:#c0b6a5; --color-accent-700:#ffe1d0; --color-accent-2-700:#dcd3c4; }
+[data-theme="dark"][data-pal="amber"]    { --color-bg:#12100a; --color-surface:#1c1810; --color-text:#f6dfae; --color-divider: color-mix(in srgb, #ffbe50 24%, transparent); --color-accent:#ffbe50; --color-accent-2:#c9a468; --color-accent-700:#ffd68c; --color-accent-2-700:#e3c793; }
+[data-theme="dark"][data-pal="phosphor"] { --color-bg:#0b110c; --color-surface:#131b14; --color-text:#d9f2dd; --color-divider: color-mix(in srgb, #8fe6ac 24%, transparent); --color-accent:#8fe6ac; --color-accent-2:#c9d18a; --color-accent-700:#b6f2c8; --color-accent-2-700:#e0e6b4; }
+[data-theme="dark"][data-pal="clay"]     { --color-bg:#1d1715; --color-surface:#2a211d; --color-accent:#f6a06b; --color-accent-2:#ccdbb2; --color-accent-700:#ffc6a5; --color-accent-2-700:#e1eecc; }
+[data-theme="dark"][data-pal="tinta"]    { --color-bg:#10131a; --color-surface:#1a1f2b; --color-accent:#6f9bff; --color-accent-2:#9aa4b5; --color-accent-700:#b9cdff; --color-accent-2-700:#ccd2db; }
+[data-theme="dark"][data-pal="indigo"]   { --color-bg:#150f22; --color-surface:#201830; --color-accent:#b39dff; --color-accent-2:#dba8ec; --color-accent-700:#d3c4ff; --color-accent-2-700:#f0cdf7; }
+[data-theme="dark"][data-pal="menta"]    { --color-bg:#0b1614; --color-surface:#12211e; --color-accent:#5fe0cb; --color-accent-2:#8fd6ab; --color-accent-700:#a6f0e0; --color-accent-2-700:#c0ecd0; }
+[data-theme="dark"][data-pal="rosa"]     { --color-bg:#1c1013; --color-surface:#2a171b; --color-accent:#f299b3; --color-accent-2:#d3a89e; --color-accent-700:#ffc7d6; --color-accent-2-700:#e8c7bf; }
+[data-theme="dark"][data-pal="cobalto"]  { --color-bg:#0e1419; --color-surface:#172029; --color-accent:#7bb3ec; --color-accent-2:#c9baa8; --color-accent-700:#aed2f7; --color-accent-2-700:#ddd0c0; }
+[data-theme="dark"][data-pal="grafito"]  { --color-bg:#131211; --color-surface:#1e1c19; --color-accent:#e0b94a; --color-accent-2:#a3a3a3; --color-accent-700:#f0d488; --color-accent-2-700:#c4c4c4; }
+
+/* — radio: nitidez de esquinas (pedido 2026-08-09). recto = default de ds.css
+   (0 en las tres escalas), sin bloque propio. — */
+[data-radio="suave"]   { --radius-sm:4px;  --radius-md:8px;  --radius-lg:10px; }
+[data-radio="redondo"] { --radius-sm:8px;  --radius-md:14px; --radius-lg:18px; }
+
+/* — borde: opacidad de --color-divider (hoy 40% claro / 16-24% oscuro, sin
+   tocar). :root duplica el selector a propósito: amber/phosphor oscuro
+   redefinen --color-divider arriba con el MISMO peso de especificidad
+   ([data-theme][data-pal], dos atributos) — un empate en CSS lo gana quien
+   viene DESPUÉS en el archivo, así que este bloque tiene que quedar acá
+   abajo para ganarles cuando el usuario elige "sutil"/"marcado" sobre esas
+   dos paletas. normal = default, sin bloque. — */
+:root[data-borde="sutil"]   { --color-divider: color-mix(in srgb, var(--color-text) 25%, transparent); }
+:root[data-borde="marcado"] { --color-divider: color-mix(in srgb, var(--color-text) 60%, transparent); }
+
+/* — burbuja: look de los mensajes del chat (chat.js bubbleStyle → clases,
+   pedido 2026-08-09). llena = el look de siempre (default, sin bloque
+   [data-burbuja] extra: las reglas base de abajo YA son "llena"). — */
+.mem-burb-yo  { align-self:flex-end;   max-width:82%; padding:11px 15px; border-radius:var(--radius-md); background:var(--color-accent); color:var(--color-bg); border:1px solid transparent; }
+.mem-burb-mem { align-self:flex-start; max-width:92%; padding:14px 16px; border-radius:var(--radius-md); background:var(--color-surface); color:inherit; border:1px solid var(--color-divider); }
+[data-burbuja="contorno"] .mem-burb-yo  { background:transparent; color:var(--color-text); border-color:var(--color-accent); }
+[data-burbuja="contorno"] .mem-burb-mem { background:transparent; }
+[data-burbuja="tinte"] .mem-burb-yo     { background:color-mix(in srgb, var(--color-accent) 16%, var(--color-bg)); color:var(--color-text); border-color:transparent; }
+[data-burbuja="tinte"] .mem-burb-mem    { background:color-mix(in srgb, var(--color-text) 6%, transparent); border-color:transparent; }
+[data-burbuja="minima"] .mem-burb-yo    { background:transparent; color:var(--color-text); border:0; border-right:3px solid var(--color-accent); border-radius:0; padding-right:12px; }
+[data-burbuja="minima"] .mem-burb-mem   { background:transparent; border:0; border-left:3px solid var(--color-divider); border-radius:0; padding-left:12px; }
+
+/* — fuente: tipografía del sistema (pedido 2026-08-09). archivo = default de
+   ds.css, sin bloque. Inter/Fraunces vendorizadas en ds.css (@font-face); sistema
+   no descarga nada. */
+[data-fuente="inter"]   { --font-body:"Inter", system-ui, sans-serif; --font-heading:"Inter", system-ui, sans-serif; --font-heading-weight:800; }
+[data-fuente="serif"]   { --font-body:"Fraunces", Georgia, serif; --font-heading:"Fraunces", Georgia, serif; --font-heading-weight:600; }
+[data-fuente="sistema"] { --font-body:system-ui, -apple-system, sans-serif; --font-heading:system-ui, -apple-system, sans-serif; --font-heading-weight:700; }
+
+/* — keyframes — */
+@keyframes scIn{from{opacity:0;transform:translate3d(0,18px,0) scale(.985)}to{opacity:1;transform:none}}
+/* navegación por deslizamiento (pedido 2026-08-05): la que se va sale entera por
+   su lado (transform del stage, en app.js) y la nueva entra por el contrario, así
+   que estas arrancan en el borde (100%) y no a medio camino. El !important gana
+   al `animation:scIn` que cada screen lleva en su style inline. */
+@keyframes swDer{from{opacity:.5;transform:translate3d(100%,0,0)}to{opacity:1;transform:none}}
+@keyframes swIzq{from{opacity:.5;transform:translate3d(-100%,0,0)}to{opacity:1;transform:none}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes chipIn{0%{opacity:0;transform:translateY(6px) scale(.9)}60%{transform:translateY(0) scale(1.04)}100%{opacity:1;transform:none}}
+@keyframes dot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+@keyframes sheetUp{from{transform:translateY(102%)}to{transform:none}}
+@keyframes veil{from{opacity:0}to{opacity:1}}
+@keyframes pop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+@keyframes breathe{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.35);opacity:.12}}
+@keyframes sweep{from{background-position:-160% 0}to{background-position:260% 0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes sunpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+
+/* — scrollbars — */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--color-accent) 55%, transparent) transparent; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-accent) 45%, transparent); border-radius: var(--radius-sm); border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--color-accent) 70%, transparent); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* (las tiras con data-strip se fueron en v29: donde no entraban a lo ancho ahora
+   hay dropdown o wrap, así que ya no hay scroll horizontal que disimular) */
+
+/* Safari en iOS hace zoom del viewport al enfocar un input de <16px y no
+   vuelve a alejar solo. !important porque cada input trae su font-size
+   inline (mayor especificidad que una clase); ≤600px para no infartar los
+   formularios densos de Ajustes en desktop, donde el zoom no aplica. */
+@media (max-width:600px){ input, textarea { font-size:16px !important; } }
+
+/* respeta "reducir movimiento" del SO: mata las animaciones de arriba
+   (varias infinitas) sin tocar cada una — una sola regla para todas. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* — markdown de respuestas del asistente — */
+.md { overflow-wrap: break-word; }
+.md p { margin: 0 0 10px; }
+.md p:last-child { margin-bottom: 0; }
+.md a { overflow-wrap: anywhere; }
+.md code { font-family: var(--font-mono); font-size: 13.5px; background: color-mix(in srgb, var(--color-text) 8%, transparent); padding: 1px 5px; border-radius: var(--radius-sm); }
+.md pre { margin: 10px 0; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.md .md-fence-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color:var(--text-3); border-bottom: 1px solid var(--color-divider); }
+.md .md-copy { cursor: pointer; background: none; border: 0; font: inherit; color: inherit; padding: 0; }
+.md .md-copy:hover { color: var(--color-accent-700); }
+.md pre code { display: block; padding: 12px 14px; font-size: 13px; line-height: 1.6; overflow-x: auto; background: none; border-radius: var(--radius-md); }
+.md .md-comment { opacity: .55; }
+.md blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--color-accent); font-style: italic; opacity: .9; }
+.md ul { margin: 6px 0; padding-left: 20px; }
+.md li { margin-bottom: 4px; line-height: 1.55; }
+.md li:last-child { margin-bottom: 0; }
+.md .md-h1 { font-size: 16px; font-weight: 700; letter-spacing: -.01em; margin: 16px 0 6px; }
+.md .md-h2 { font-size: 14px; font-weight: 600; margin: 12px 0 4px; color: color-mix(in srgb, var(--color-text) 88%, transparent); }
+.md b, .md strong { font-weight: 600; }
+.md .md-tabla { overflow-x: auto; margin: 10px 0; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.md table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.md th, .md td { padding: 7px 11px; text-align: left; vertical-align: top; line-height: 1.5; border-bottom: 1px solid var(--color-divider); }
+.md tr:last-child td { border-bottom: 0; }
+.md th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--color-accent-700); background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.md .md-h1:first-child, .md .md-h2:first-child { margin-top: 0; }
+.md a.md-entry { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11px; background: var(--color-accent-100, color-mix(in srgb, var(--color-accent) 14%, transparent)); color: var(--color-accent-700); padding: 2px 9px; border-radius: var(--radius-sm); }
+/* Los medios van en miniatura y se agrandan con un clic (pedido 2026-08-07): a
+   tamaño completo una sola imagen llenaba la pantalla y varias candidatas no se
+   podían comparar. inline-block, así una fila de opciones fluye y envuelve sola.
+   Sin prefijo .md: la usan también los adjuntos de una captura o una entrada
+   (ui.js Adjunto), que antes se abrían en una pestaña aparte. El diálogo lo
+   montan Markdown() y Adjunto(); vive en md.js. */
+.md-thumb { max-width: min(100%, 208px); max-height: 208px; border-radius: var(--radius-md); margin: 4px 6px 4px 0; vertical-align: top; cursor: zoom-in; border: 1px solid var(--color-divider); }
+/* Opciones numeradas: número (para decir "la 2") + casilla, en UNA sola pastilla
+   sobre la miniatura — dos controles separados encima de una imagen de 208px es
+   más de lo que entra. El ::before le da 44px de área táctil sin agrandarla. */
+.md .md-pick { position: relative; display: inline-block; line-height: 0; }
+.md .md-pick-tag { position: absolute; top: 9px; left: 5px; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px 0 8px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 12px; line-height: 1; cursor: pointer; user-select: none; color: var(--color-text); background: color-mix(in srgb, var(--color-bg) 86%, transparent); border: 1px solid var(--color-divider); backdrop-filter: blur(4px); }
+.md .md-pick-tag::before { content: ""; position: absolute; inset: -9px; }
+.md .md-pick-box { width: 14px; height: 14px; border-radius: var(--radius-sm); border: 1.5px solid currentColor; opacity: .8; display: inline-flex; align-items: center; justify-content: center; }
+.md .md-pick.sel .md-pick-tag { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-bg); }
+.md .md-pick.sel .md-pick-box { background: currentColor; opacity: 1; }
+.md .md-pick.sel .md-pick-box::after { content: "✓"; color: var(--color-accent); font-size: 9.5px; font-weight: 700; }
+.md .md-pick.sel .md-thumb { outline: 2.5px solid var(--color-accent); outline-offset: -2.5px; }
+/* Con qué se generó el medio, debajo de él (pedido 2026-08-07). En columna para
+   que la ficha quede pegada a SU medio cuando hay varios en la misma respuesta. */
+.md .md-medio { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 4px 6px 6px 0; vertical-align: top; max-width: 100%; }
+.md .md-medio .md-thumb { margin: 0; }
+.md .md-ficha { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--text-3); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-lupa { border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 96vh; cursor: zoom-out; overflow: visible; }
+.md-lupa::backdrop { background: rgba(0, 0, 0, .82); backdrop-filter: blur(3px); }
+.md-lupa img { display: block; max-width: 96vw; max-height: 96vh; border-radius: var(--radius-md); }
+
+/* height (no solo min-height): sin alto definido la cadena flex:1/min-height:0 de
+   las pantallas no resuelve, los paneles con overflow:auto crecen en vez de
+   scrollear y el sobrante queda cortado por el overflow:hidden de acá. Se veía
+   sobre todo en apaisado, donde sobra poco alto. */
+/* overflow-wrap acá y no por pantalla: cualquier texto largo sin cortes (una
+   ruta de archivo, un id) que aparezca en cualquier screen actual o futura
+   rompe hacia abajo en vez de desbordar el ancho — una regla, no N. */
+/* padding-left/right: en apaisado con notch (iPhone de lado) el sensor housing
+   come del borde lateral, no del superior — esto vale para toda pantalla porque
+   cuelgan de acá; 0 en cualquier dispositivo sin notch, no cambia nada ahí. */
+/* El shell es una ventana fija: nunca scrollea la página, scrollea cada panel.
+   Sin este overflow:hidden el documento tenía una válvula de escape y bastaba
+   que .mem-content midiera unos píxeles de más para que apareciera un scroll
+   fantasma. El background va en html porque es lo que pinta el canvas: sin él
+   el rebote (o cualquier banda) mostraba blanco. */
+html, body { overflow: hidden; overscroll-behavior: none; }
+html { background: var(--color-bg); }
+/* svh y no dvh (bug reportado 2026-08-05: en la PRIMERA carga en móvil la app
+   salía un pelín más alta de la cuenta y con un scroll pequeño, y se arreglaba
+   sola al cambiar de pantalla). dvh es el viewport de AHORA, y en la primera
+   pintura —mientras la barra retráctil del navegador o la splash de la PWA se
+   asientan— todavía puede valer lo que valdrá cuando esa UI se esconda: de ahí
+   los píxeles de más. svh es el alto garantizado-visible y no cambia nunca, así
+   que no hay transitorio que atrapar. Como contrapartida, en pestaña de
+   navegador con la barra escondida queda una banda abajo, del color de html. */
+.mem-content { position: relative; height: 100svh; min-height: 100svh; overflow: hidden; overflow-wrap: break-word; display: flex; flex-direction: column; padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
+
+/* Toda pantalla cuelga de acá como hijo flex. Sin min-height:0 no puede encogerse
+   (el mínimo automático es su contenido), así que su panel de overflow:auto crece
+   en vez de scrollear y lo que sobra lo corta el overflow:hidden de arriba: la
+   lista se ve incompleta y sin barra. Va acá y no inline en cada screen para que
+   valga también para las que vengan. */
+.mem-stage > * { min-height: 0; }
+[data-swipe="der"] .mem-stage > * { animation: swDer .28s cubic-bezier(.22,1,.36,1) !important; }
+[data-swipe="izq"] .mem-stage > * { animation: swIzq .28s cubic-bezier(.22,1,.36,1) !important; }
+
+/* — layout desktop (≥880px): sidebar + columna, sin bisel de celular — */
+@media (min-width: 880px) {
+  body { display: flex; justify-content: center; align-items: stretch; min-height: 100vh; background: var(--color-surface); }
+  #app { display: flex; width: 100%; }
+  .mem-content { flex: 1; min-height: 100vh; }
+}

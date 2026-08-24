@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mem": {
+      "type": "http",
+      "url": "https://tu-maquina.tu-tailnet.ts.net:8443/mcp/SECRETO"
+    }
+  }
+}

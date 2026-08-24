@@ -1,0 +1,37 @@
+# Configuración de MeM. Copiar a config.toml (el instalador lo hace solo) y
+# editar — cambiar de proveedor de LLM es editar este archivo, nada más.
+#
+# Proveedores:
+#   anthropic   → API de Claude (requiere env ANTHROPIC_API_KEY; modelo p.ej. "claude-sonnet-5")
+#   claude_code → Claude Code instalado localmente (comando `claude`, usa la suscripción, sin key;
+#                 modelo vacío = el default del CLI; sin tool-calling → retrieval scripted)
+#   openai      → LM Studio u otro endpoint OpenAI-compatible (usa base_url; key opcional vía api_key_env)
+
+hamuq = "C:/Users/TU_USUARIO/hamuQ"    # carpeta del vault (Markdown + frontmatter), fuera de este repo
+
+proveedor = "openai"
+modelo = "openai/gpt-oss-20b"
+base_url = "http://localhost:1234/v1"   # solo se usa con proveedor = "openai"
+api_key_env = "ANTHROPIC_API_KEY"       # nombre de la variable de entorno con la API key
+
+puerto = 8765
+token = ""                              # Bearer del API; vacío = sin auth (solo uso local)
+mcp_secreto = ""                        # llave de POST /mcp/{secreto}; vacío = ruta apagada. Generar
+                                         # un valor random para exponer MeM a Claude vía HTTP/Funnel.
+# URL pública de la PWA (p.ej. tu host Tailscale), para los links "abrir en el
+# browser" de las tools MCP. Vacío = esos links no se arman.
+app_url = ""
+
+media_video = "higgsfield"
+
+higgs_imagen = ""
+
+higgs_video = ""
+
+media_audio = "higgsfield"
+
+comfy_workflow = "imagen"
+
+media_imagen = "higgsfield"
+
+idle_minutos = 5
