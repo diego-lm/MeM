@@ -1,7 +1,7 @@
 // Cache del shell de la app para que "cero pérdida" (spec §8.1) también valga
 // sin red: la UI y la cola de captura offline (js/api.js) siguen funcionando.
 // Datos (API) siempre van a la red — nunca se cachean, se mostrarían obsoletos.
-const CACHE = "mem-shell-v90";
+const CACHE = "mem-shell-v91";
 const PRECACHE = [
   "/", "/manifest.webmanifest", "/assets/icon-192.png", "/assets/icon-512.png", "/assets/favicon.ico",
   "/css/ds.css", "/css/app.css",

@@ -495,6 +495,85 @@ function Recursos({ en, svc }) {
       <div style="font-size:11px;font-family:var(--font-mono);opacity:.6;padding:2px 0 4px">${aviso}</div>`}`;
 }
 
+// Poner y sacar de la máquina lo que MeM usa pero no trae: LM Studio, Ollama,
+// ComfyUI. El motor es winget (mem/componentes.py) y el catálogo es
+// componentes.json, el mismo que lee install.ps1 — agregar un componente es
+// agregarlo ahí, sin tocar esta pantalla.
+//
+// Tres estados y no dos: "instalado a mano" (ComfyUI clonado a pulso, LM Studio
+// puesto por su .exe) no ofrece desinstalar, porque winget no puede sacar lo que
+// no puso y el error que devuelve no se entiende.
+function Componentes({ lang }) {
+  const en = lang === "en";
+  const [datos, setDatos] = useState(null);   // {winget, componentes:{...}}
+  const [err, setErr] = useState("");
+  const [confirmar, setConfirmar] = useState("");  // id esperando el segundo toque
+
+  const cargar = () => get("/components").then(setDatos).catch(() => setDatos(null));
+  const lista = Object.values(datos?.componentes || {});
+  const hayTrabajo = lista.some((c) => c.trabajo?.activo);
+  useEffect(() => {
+    cargar();
+    // winget tarda minutos y no avisa cuando termina: mientras hay algo corriendo
+    // se mira seguido, y quieto lo justo para notar un cambio hecho por fuera.
+    return intervaloVisible(cargar, hayTrabajo ? 2500 : 15000);
+  }, [hayTrabajo]);
+
+  async function accion(id, que) {
+    setErr(""); setConfirmar("");
+    try { await post(`/components/${id}/${que}`); } catch (e) { setErr(String(e.message || e)); }
+    cargar();
+  }
+
+  const btn = (txt, onClick, fuerte) => html`
+    <div role="button" tabindex="0" onClick=${onClick} class=${fuerte ? "mem-btn-accent" : ""}
+         style="height:30px;padding:0 13px;border-radius:var(--radius-md);display:flex;align-items:center;font-size:12px;cursor:pointer;flex-shrink:0${fuerte ? "" : ";border:1px solid var(--color-divider)"}">${txt}</div>`;
+
+  return html`
+    <${Grupo} titulo=${en ? "Components" : "Componentes"}>
+      ${datos && !datos.winget && html`
+        <div style="font-size:12px;line-height:1.5;color:var(--color-accent-700);padding:0 0 8px">
+          ${en ? "winget not found — install 'App Installer' from the Microsoft Store to manage components from here."
+               : "no encuentro winget — se instala 'Instalador de aplicaciones' desde la Microsoft Store para manejar componentes desde acá."}</div>`}
+      ${datos === null && html`<div style="font-size:12px;opacity:.5;padding:4px 0">…</div>`}
+      ${lista.map((c) => {
+        const trabajando = c.trabajo?.activo;
+        return html`
+          <div key=${c.id} style="padding:11px 0;border-top:1px solid var(--color-divider)">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="flex:1;min-width:0">
+                <span style="font-size:14px;font-weight:600">${c.nombre}</span>
+                <span style="display:block;font-family:var(--font-mono);font-size:9.5px;opacity:.55;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                  ${trabajando ? (en ? "working…" : "trabajando…")
+                    : c.instalacion === "winget" ? `${en ? "installed" : "instalado"} · ${c.winget}`
+                    : c.instalacion === "manual" ? (en ? "installed by hand — remove it the way you put it"
+                                                       : "instalado a mano — se saca por donde se puso")
+                    : c.winget}</span>
+              </span>
+              ${!trabajando && datos?.winget && c.instalacion === "no"
+                && btn(en ? "Install" : "Instalar", () => accion(c.id, "install"), true)}
+              ${!trabajando && c.instalacion === "winget" && (confirmar === c.id
+                ? btn(en ? "Tap again to remove" : "Tocá de nuevo para sacarlo", () => accion(c.id, "uninstall"))
+                : btn(en ? "Uninstall" : "Desinstalar", () => {
+                    setConfirmar(c.id);
+                    setTimeout(() => setConfirmar((v) => (v === c.id ? "" : v)), 4000);
+                  }))}
+            </div>
+            ${c.instalacion === "no" && !trabajando && html`
+              <div style="font-size:11.5px;opacity:.5;line-height:1.45;padding-top:4px">${c.que_es?.[en ? "en" : "es"] || ""}</div>`}
+            <!-- el progreso de winget: sin esto, una instalación que falla es un
+                 botón que no cambia nunca y nada que mirar -->
+            ${c.trabajo && html`
+              <pre style="margin:6px 0 0;padding:8px;border-radius:var(--radius-md);max-height:110px;overflow:auto;background:color-mix(in srgb,var(--color-text) 5%,transparent);font-size:10px;font-family:var(--font-mono);white-space:pre-wrap">${c.trabajo.log.join("\n") || "…"}</pre>`}
+          </div>`;
+      })}
+      ${err && html`<div style="margin:8px 0 0;font-size:12px;font-family:var(--font-mono);color:var(--color-accent-700)">⚠ ${err}</div>`}
+      <div style="margin-top:9px;font-size:11.5px;opacity:.5;line-height:1.5">
+        ${en ? "Installs and removals go through winget; Windows may ask for permission on the PC. The same list is what install.ps1 offers on a clean machine."
+             : "Instalar y sacar van por winget; Windows puede pedir permiso en la PC. Es la misma lista que ofrece install.ps1 en una máquina limpia."}</div>
+    <//>`;
+}
+
 function CatMedia({ lang, cfg, onCfg }) {
   const en = lang === "en";
   const [svc, setSvc] = useState(null);             // {comfyui, lmstudio, higgsfield}
@@ -567,6 +646,8 @@ function CatMedia({ lang, cfg, onCfg }) {
                                : "npm i -g @higgsfield/cli · higgsfield auth login")}
         ${err && html`<div style="margin:6px 0;font-size:12px;font-family:var(--font-mono);color:var(--color-accent-700)">⚠ ${err}</div>`}
       <//>
+
+      <${Componentes} lang=${lang} />
 
       <${Grupo} titulo=${en ? "Preferred backend per type" : "Backend preferido por tipo"}>
         ${TIPOS_MEDIA.map((t) => html`

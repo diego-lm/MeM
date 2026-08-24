@@ -17,8 +17,9 @@ from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (agentes, chat, compartir, config, crear, exportar, fallas, indice, lint, llm,
-               mcp, memoria, modos, procesar, recursos, servicios, sesiones, sintesis, triaje)
+from . import (agentes, chat, compartir, componentes, config, crear, exportar, fallas, indice,
+               lint, llm, mcp, memoria, modos, procesar, recursos, servicios, sesiones, sintesis,
+               triaje)
 
 cfg = config.cargar()
 
@@ -273,6 +274,36 @@ def get_service_log(nombre: str, n: int = 200):
     """La consola que ya no está: cola del log de un servicio lanzado por MeM
     (%LOCALAPPDATA%\\MeM\\<nombre>.log). Vacío si Diego lo arrancó a mano."""
     return {"lineas": servicios.log_tail(nombre, n)}
+
+
+@app.get("/components", dependencies=[Depends(auth)])
+def get_components():
+    """Qué componentes opcionales se ofrecen y cuáles están puestos (Ajustes ›
+    Media › Componentes). Se sondea con poll mientras hay una instalación en
+    curso, así que las consultas a winget van cacheadas adentro."""
+    return componentes.estado(cfg)
+
+
+@app.post("/components/{id_}/install", dependencies=[Depends(auth)])
+def install_component(id_: str):
+    """Instala un componente por winget. El permiso es el clic que disparó esta
+    llamada; winget corre suelto y esto vuelve enseguida (son minutos)."""
+    ok, mensaje = componentes.instalar(cfg, id_)
+    if not ok:
+        raise HTTPException(400 if "desconocido" in mensaje else 502, mensaje)
+    memoria.log_evento(cfg["hamuq"], "sistema", mensaje)
+    return {"ok": True, "mensaje": mensaje}
+
+
+@app.post("/components/{id_}/uninstall", dependencies=[Depends(auth)])
+def uninstall_component(id_: str):
+    """Saca un componente de la máquina. La confirmación la pide la pantalla; acá
+    la barrera es que solo se desinstala lo que winget instaló."""
+    ok, mensaje = componentes.desinstalar(cfg, id_)
+    if not ok:
+        raise HTTPException(400 if "desconocido" in mensaje else 502, mensaje)
+    memoria.log_evento(cfg["hamuq"], "sistema", mensaje)
+    return {"ok": True, "mensaje": mensaje}
 
 
 @app.get("/media/workflows", dependencies=[Depends(auth)])

@@ -1,0 +1,33 @@
+{
+  "_comentario": "Componentes opcionales que MeM puede instalar y desinstalar por winget. Lo leen mem/componentes.py (Ajustes › Media › Componentes) e install.ps1: una sola lista, o se separan al primer cambio. Agregar uno = agregar acá, sin tocar código. 'exe' y 'cfg_archivo' son cómo se detecta una instalación hecha a mano (que no se ofrece desinstalar).",
+
+  "lmstudio": {
+    "nombre": "LM Studio",
+    "winget": "ElementLabs.LMStudio",
+    "exe": "lms",
+    "que_es": {
+      "es": "Modelos de lenguaje locales, con servidor compatible con OpenAI en localhost:1234. Es el proveedor `openai` de MeM sin pagar API.",
+      "en": "Local language models with an OpenAI-compatible server on localhost:1234. MeM's `openai` provider without paying for an API."
+    }
+  },
+
+  "ollama": {
+    "nombre": "Ollama",
+    "winget": "Ollama.Ollama",
+    "exe": "ollama",
+    "que_es": {
+      "es": "La otra vía de modelos locales, por línea de comandos. Sirve en localhost:11434/v1: se usa creando un agente `openai` con esa base_url.",
+      "en": "The other route to local models, command-line based. Serves on localhost:11434/v1: use it with an `openai` agent pointed at that base_url."
+    }
+  },
+
+  "comfyui": {
+    "nombre": "ComfyUI",
+    "winget": "Comfy.ComfyUI-Desktop",
+    "cfg_archivo": "comfy_cmd",
+    "que_es": {
+      "es": "Generación local de imagen y video por workflows. Es el backend `local` del modo media.",
+      "en": "Local image and video generation through workflows. The `local` backend of media mode."
+    }
+  }
+}

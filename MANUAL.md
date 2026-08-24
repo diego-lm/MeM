@@ -16,17 +16,34 @@ En PowerShell:
 irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
 ```
 
-Clona el repo en `%USERPROFILE%\MeM`, crea el entorno virtual, instala dependencias, copia `config.example.toml` → `config.toml` si no existe, y deja un acceso directo para que MeM arranque solo al iniciar sesión.
+En una máquina limpia hace todo: instala lo que falte (git, Python), clona el repo en `%USERPROFILE%\MeM`, crea el entorno virtual, instala dependencias, copia `config.example.toml` → `config.toml`, ofrece los componentes opcionales y deja un acceso directo para que MeM arranque solo al iniciar sesión.
 
-Requisitos previos (el instalador los chequea y avisa si faltan):
-- **Python 3.11+** — `winget install Python.Python.3.12`
-- **git** — `winget install Git.Git`
-- **GitHub CLI** (`gh`, opcional) — si el repo es privado y no está, usa `git clone` normal y pide login.
+Lo único que tiene que estar de antes es **winget** (el "Instalador de aplicaciones" de Windows), que viene con Windows 10/11; si falta, se pone desde la Microsoft Store.
 
 Parámetros:
+- `-Con <ids>` — instalar estos componentes sin preguntar, p. ej. `-Con lmstudio,comfyui`.
+- `-SinPreguntar` — desatendido: solo MeM, ningún componente opcional.
 - `-Destino <carpeta>` — instalar en otro lado (default `%USERPROFILE%\MeM`).
 - `-Audio` — instala también faster-whisper (transcripción de audio local; pesado, ver [Solución de problemas](#solución-de-problemas)).
 - `-SinAutostart` — no crear el acceso directo de arranque automático.
+
+### Componentes opcionales
+
+Ni MeM ni el instalador traen los motores de IA: los instala **winget**, el gestor de paquetes de Windows, y por eso actualizarlos o sacarlos después funciona como con cualquier otro programa.
+
+| Componente | Para qué | Paquete |
+|---|---|---|
+| **LM Studio** | modelos de lenguaje locales, servidor OpenAI-compatible en `localhost:1234` | `ElementLabs.LMStudio` |
+| **Ollama** | la otra vía de modelos locales, por línea de comandos; sirve en `localhost:11434/v1` | `Ollama.Ollama` |
+| **ComfyUI** | generación local de imagen y video (backend `local` del modo media) | `Comfy.ComfyUI-Desktop` |
+
+El instalador los ofrece uno por uno; después se ponen y se sacan desde **Ajustes › Media › Componentes**, sin volver a la terminal. Windows puede pedir permiso (UAC) en la PC mientras winget trabaja, aunque la orden haya salido del celular.
+
+Un componente que instalaste **a mano** (un ComfyUI clonado a pulso, LM Studio puesto por su `.exe`) aparece como "instalado a mano" y no ofrece desinstalar: winget no puede sacar lo que no puso. Se saca por donde se puso.
+
+Para usar Ollama desde MeM: Ajustes › Proveedor de IA › crear un agente con proveedor `openai` y `base_url` `http://localhost:11434/v1`, y el modelo que hayas bajado (`ollama pull <modelo>`).
+
+Agregar un componente nuevo a la lista es agregarlo a [componentes.json](componentes.json) — el instalador y la app leen ese mismo archivo, no hay código que tocar.
 
 ### Actualizar un checkout existente
 
@@ -89,7 +106,7 @@ Si el ícono no está, doble clic en `MeM.bat` lo vuelve a levantar (un mutex ev
   | **mindmap** | nodos y relaciones entre temas y memorias |
   | **timeline** | los hechos de un tema en orden cronológico |
 
-- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes.
+- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI.
 
 ### Comandos (`mem ...`)
 
@@ -135,6 +152,12 @@ Los clientes de IA tienen 240s de timeout. Si el proveedor es `openai` (LM Studi
 
 **Falla la instalación del extra `[audio]`**
 `faster-whisper` trae `ctranslate2`, que en Windows necesita cuBLAS/cuDNN aparte para GPU — sin eso corre en CPU (más lento pero funciona). Es opcional: sin él, una captura de audio queda pendiente con el motivo, nada se rompe.
+
+**"No encuentro winget" con winget instalado**
+El alias de winget vive en `%LOCALAPPDATA%\Microsoft\WindowsApps`, que no siempre está en el PATH del proceso. MeM lo busca igual por esa ruta, así que el aviso solo aparece si de verdad falta el "Instalador de aplicaciones" — se pone desde la Microsoft Store.
+
+**Instalar un componente no termina nunca**
+winget corre suelto y puede tardar varios minutos (son cientos de MB). El progreso real sale en el recuadro de log debajo del componente, en Ajustes › Media › Componentes; si winget está esperando un permiso de Windows, el diálogo está en la pantalla de la PC.
 
 **Cambié algo y `install.ps1` no lo actualiza**
 `install.ps1` corrido desde un checkout hace `git pull --ff-only`: si hay cambios locales sin commitear en ese checkout, va a fallar en vez de pisarlos. Resolver con `git status` ahí primero.
