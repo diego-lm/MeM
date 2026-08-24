@@ -1,30 +1,44 @@
-﻿# Instalador unificado de MeM.
+# Instalador unificado de MeM.
 #
-# Máquina limpia (instala lo que falte, clona y arma todo):
+# Maquina limpia (instala lo que falte, clona y arma todo):
 #   irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
 #
-# Checkout ya clonado (actualiza en el lugar — dependencias, config, autostart):
+# Checkout ya clonado (actualiza en el lugar: dependencias, config, autostart):
 #   .\install.ps1
 #
 # Componentes opcionales (LM Studio, Ollama, ComfyUI): sin -Con los pregunta uno
 # por uno; con -Con instala esos y no pregunta nada. Desinstalar se hace desde la
-# app (Ajustes › Media › Componentes), que usa el mismo componentes.json.
+# app (Ajustes > Media > Componentes), que usa el mismo componentes.json.
 #   .\install.ps1 -Con lmstudio,comfyui
 #   .\install.ps1 -SinPreguntar          # solo MeM, sin extras
 #
+# ------------------------------------------------------------------------------
+# ESTE ARCHIVO ES ASCII PURO Y VA SIN BOM. No es capricho: son dos exigencias que
+# se contradicen y solo el ASCII las satisface a la vez.
+#   - Sin BOM, Windows PowerShell 5.1 lee un .ps1 con el codepage del sistema, y
+#     un acento rompe el parser en lineas que ni lo tienen.
+#   - Con BOM, `irm ... | iex` falla: Invoke-RestMethod entrega el BOM como
+#     caracter literal U+FEFF y el parser se cae en el bloque param().
+# Sin caracteres no-ASCII en el fuente, las dos vias andan. Los acentos que SI
+# se ven en pantalla salen de componentes.json, que se lee en runtime como UTF-8.
+# ------------------------------------------------------------------------------
 param(
     [string]$Destino = "$env:USERPROFILE\MeM",
     [string[]]$Con = @(),   # ids de componentes.json a instalar sin preguntar
     [switch]$SinPreguntar,  # nunca preguntar (desatendido): no instala extras
-    [switch]$Audio,         # instala también el extra [audio] (faster-whisper, pesado)
-    [switch]$SinAutostart   # no crear el acceso directo de arranque automático
+    [switch]$Audio,         # instala tambien el extra [audio] (faster-whisper, pesado)
+    [switch]$SinAutostart   # no crear el acceso directo de arranque automatico
 )
 
 $ErrorActionPreference = "Stop"
 $repo = "diego-lm/MeM"
 
-function Fallar($msg) { Write-Host "`n✗ $msg" -ForegroundColor Red; exit 1 }
-function Paso($msg) { Write-Host "`n→ $msg" -ForegroundColor Cyan }
+# Los textos de componentes.json llevan acentos; sin esto la consola los escupe
+# segun su codepage (se vio "DespuA(c)s" en una corrida real).
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+
+function Fallar($msg) { Write-Host "`n[X] $msg" -ForegroundColor Red; exit 1 }
+function Paso($msg) { Write-Host "`n> $msg" -ForegroundColor Cyan }
 function Aviso($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
 
 # Read-Host revienta (o lee EOF) cuando no hay nadie del otro lado: en desatendido
@@ -32,12 +46,12 @@ function Aviso($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
 function Preguntar($msg) {
     if ($SinPreguntar) { return $false }
     try { $r = Read-Host "  $msg [s/N]" } catch { return $false }
-    return $r -match '^\s*(s|si|sí|y|yes)\s*$'
+    return $r -match '^\s*(s|si|y|yes)\s*$'
 }
 
 # El alias de winget vive en %LOCALAPPDATA%\Microsoft\WindowsApps, que no siempre
-# está en el PATH del proceso (visto en esta máquina: winget andando y
-# `Get-Command winget` vacío). Mismo fallback que mem/componentes.py.
+# esta en el PATH del proceso (visto en esta maquina: winget andando y
+# `Get-Command winget` vacio). Mismo fallback que mem/componentes.py.
 function Buscar-Winget {
     $cmd = Get-Command winget -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -47,8 +61,8 @@ function Buscar-Winget {
 }
 
 # winget install deja el .exe nuevo en el PATH del SISTEMA, no en el de esta
-# sesión: sin releerlo, el git que acabamos de instalar "no existe" dos líneas
-# más abajo.
+# sesion: sin releerlo, el git que acabamos de instalar "no existe" dos lineas
+# mas abajo.
 function Refrescar-Path {
     $env:PATH = ([Environment]::GetEnvironmentVariable("Path", "Machine"),
                  [Environment]::GetEnvironmentVariable("Path", "User")) -join ';'
@@ -57,16 +71,18 @@ function Refrescar-Path {
 function Winget-Instalar($id, $nombre) {
     $w = Buscar-Winget
     if (-not $w) {
-        Fallar "falta $nombre y no encuentro winget para instalarlo. Instalá 'Instalador de aplicaciones' desde la Microsoft Store, o poné $nombre a mano."
+        Fallar "falta $nombre y no encuentro winget para instalarlo. Instala 'Instalador de aplicaciones' desde la Microsoft Store, o pone $nombre a mano."
     }
     Paso "Instalando $nombre (winget: $id)"
     & $w install --id $id --exact --silent --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0) { Fallar "winget no pudo instalar $nombre (código $LASTEXITCODE)." }
+    if ($LASTEXITCODE -ne 0) { Fallar "winget no pudo instalar $nombre (codigo $LASTEXITCODE)." }
     Refrescar-Path
 }
 
 # Si el script corre desde un checkout existente (doble clic, .\install.ps1) y
-# no se pasó -Destino a mano, actualiza ESE lugar en vez de clonar uno nuevo.
+# no se paso -Destino a mano, actualiza ESE lugar en vez de clonar uno nuevo.
+# Con `irm | iex` no hay archivo y $PSScriptRoot viene vacio: clona, que es lo
+# que corresponde en una maquina limpia.
 if (-not $PSBoundParameters.ContainsKey('Destino') -and $PSScriptRoot -and
     (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) {
     $Destino = $PSScriptRoot
@@ -81,13 +97,13 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 Write-Host "  $((Get-Command git).Source)"
 
-# ponytail: los dos ids de acá son los únicos hardcodeados. No pueden salir de
+# ponytail: los dos ids de aca son los unicos hardcodeados. No pueden salir de
 # componentes.json porque se necesitan ANTES de que exista el repo que lo trae.
 Paso "Buscando Python 3.11+"
 function Buscar-Python {
     # el primer `python` del PATH puede ser el venv de otro proyecto (visto en
-    # esta máquina: uno de Hermes ganaba al Python real), así que se descartan
-    # los venv y se pregunta la versión en vez de confiar en el orden.
+    # esta maquina: uno de Hermes ganaba al Python real), asi que se descartan
+    # los venv y se pregunta la version en vez de confiar en el orden.
     $cands = Get-Command python -All -ErrorAction SilentlyContinue |
         Where-Object { $_.Source -notmatch '\\venv\\|\\\.venv\\' } |
         Select-Object -ExpandProperty Source -Unique
@@ -100,7 +116,7 @@ $python = Buscar-Python
 if (-not $python) {
     Winget-Instalar "Python.Python.3.12" "Python 3.12"
     $python = Buscar-Python
-    if (-not $python) { Fallar "instalé Python pero no lo encuentro. Cerrá y abrí la terminal, y volvé a correr esto." }
+    if (-not $python) { Fallar "instale Python pero no lo encuentro. Cerra y abri la terminal, y volve a correr esto." }
 }
 Write-Host "  $python"
 
@@ -108,7 +124,7 @@ $gh = Get-Command gh -ErrorAction SilentlyContinue
 
 if (-not $yaClonado) {
     Paso "Clonando en $Destino"
-    if (Test-Path $Destino) { Fallar "$Destino ya existe y no es un checkout de MeM. Borralo o elegí otro -Destino." }
+    if (Test-Path $Destino) { Fallar "$Destino ya existe y no es un checkout de MeM. Borralo o elegi otro -Destino." }
     if ($gh) { & $gh repo clone $repo $Destino } else { git clone "https://github.com/$repo.git" $Destino }
     if ($LASTEXITCODE -ne 0) { Fallar "no pude clonar $repo." }
 } else {
@@ -122,21 +138,21 @@ try {
     if (-not (Test-Path ".venv")) { & $python -m venv .venv }
     $paquete = if ($Audio) { ".[audio]" } else { "." }
     & .venv\Scripts\pip install -q -e $paquete pytest
-    if ($LASTEXITCODE -ne 0) { Fallar "pip install falló (ver arriba)." }
+    if ($LASTEXITCODE -ne 0) { Fallar "pip install fallo (ver arriba)." }
 
     if (-not (Test-Path "config.toml")) {
         Copy-Item "config.example.toml" "config.toml"
-        Aviso "creado config.toml — falta editar 'hamuq' (carpeta del vault) y el proveedor de IA."
+        Aviso "creado config.toml - falta editar 'hamuq' (carpeta del vault) y el proveedor de IA."
     }
 } finally {
     Pop-Location
 }
 
 # --- componentes opcionales -------------------------------------------------
-# Qué hay puesto lo dice mem.componentes, no un `winget list` propio: es el mismo
-# módulo que usa la app, y sabe además reconocer una instalación hecha a mano
+# Que hay puesto lo dice mem.componentes, no un `winget list` propio: es el mismo
+# modulo que usa la app, y sabe ademas reconocer una instalacion hecha a mano
 # (ComfyUI clonado a pulso no es "falta ComfyUI", y ofrecer el paquete de winget
-# ahí dejaría DOS ComfyUI en la máquina).
+# ahi dejaria DOS ComfyUI en la maquina).
 Paso "Componentes opcionales"
 Push-Location $Destino
 try {
@@ -146,7 +162,7 @@ try {
 finally { Pop-Location }
 
 if (-not $estado) {
-    Aviso "no pude leer el catálogo de componentes — se instalan igual desde Ajustes › Media › Componentes."
+    Aviso "no pude leer el catalogo de componentes - se instalan igual desde Ajustes > Media > Componentes."
 } else {
     $ids = $estado.componentes.PSObject.Properties
     $desconocidos = $Con | Where-Object { $_ -notin $ids.Name }
@@ -155,22 +171,22 @@ if (-not $estado) {
 
     foreach ($p in $ids) {
         $c = $p.Value
-        if ($c.instalacion -eq "winget") { Write-Host "  ✓ $($c.nombre) ya está"; continue }
-        if ($c.instalacion -eq "manual") { Write-Host "  ✓ $($c.nombre) ya está (instalado a mano)"; continue }
+        if ($c.instalacion -eq "winget") { Write-Host "  [ok] $($c.nombre) ya esta"; continue }
+        if ($c.instalacion -eq "manual") { Write-Host "  [ok] $($c.nombre) ya esta (instalado a mano)"; continue }
         if (-not $estado.winget) { continue }
         $quiere = if ($Con.Count) { $p.Name -in $Con }
                   elseif ($SinPreguntar) { $false }
                   else {
-                      Write-Host "  $($c.nombre) — $($c.que_es.es)"
-                      Preguntar "¿Instalar $($c.nombre)?"
+                      Write-Host "  $($c.nombre) - $($c.que_es.es)"
+                      Preguntar "Instalar $($c.nombre)?"
                   }
         if ($quiere) { Winget-Instalar $c.winget $c.nombre }
     }
-    Write-Host "  (se instalan y se sacan después desde Ajustes › Media › Componentes)"
+    Write-Host "  (se instalan y se sacan despues desde Ajustes > Media > Componentes)"
 }
 
 if (-not $SinAutostart) {
-    Paso "Arranque automático al iniciar sesión"
+    Paso "Arranque automatico al iniciar sesion"
     $lnkPath = Join-Path ([Environment]::GetFolderPath("Startup")) "MeM.lnk"
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut($lnkPath)
@@ -181,6 +197,6 @@ if (-not $SinAutostart) {
     Write-Host "  $lnkPath"
 }
 
-Write-Host "`n✓ Listo." -ForegroundColor Green
+Write-Host "`n[ok] Listo." -ForegroundColor Green
 Write-Host "  Arrancar ahora:  $Destino\MeM.bat"
-Write-Host "  Después:         http://localhost:8765"
+Write-Host "  Despues:         http://localhost:8765"

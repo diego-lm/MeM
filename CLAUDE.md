@@ -14,7 +14,7 @@ Es el instalador unificado: bootstrap en máquina nueva (`irm .../install.ps1 | 
 
 Tres cosas que ya costaron encontrarlas y no hay que deshacer:
 
-- `install.ps1` va con **BOM UTF-8**. Sin él, Windows PowerShell 5.1 lo lee con el codepage del sistema y los acentos rompen el parser en líneas que ni los tienen.
+- `install.ps1` va en **ASCII puro y sin BOM** — nada de acentos ni de `✓`/`→` en el fuente. Son dos exigencias que se contradicen y solo el ASCII las satisface a la vez: sin BOM, Windows PowerShell 5.1 lee el `.ps1` con el codepage del sistema y un acento rompe el parser en líneas que ni lo tienen; con BOM, `irm ... | iex` falla porque `Invoke-RestMethod` entrega el BOM como carácter literal U+FEFF y el parser se cae en el bloque `param()`. Los acentos que sí se ven en pantalla salen de `componentes.json`, leído en runtime, y por eso el script fija `[Console]::OutputEncoding = UTF8`.
 - Los `.bat` van con **CRLF y sin BOM**, forzado por `.gitattributes`. `cmd.exe` los lee buscando por posición y con LF se le corre el offset y se come el primer carácter de una línea (`REM` → `EM`). Depende del tamaño del archivo, así que uno corto parece andar y el de al lado no — no confiar en el `core.autocrlf` de cada máquina.
 - **El primer `python` del PATH no es confiable**: puede ser el venv de otro proyecto, así que se filtran los `\venv\` y se pregunta la versión.
 
