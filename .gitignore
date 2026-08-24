@@ -14,3 +14,6 @@ mem_tray.log.err
 # estado local/runtime de Claude Code (no compartido entre máquinas)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# el instalador compilado: se arma con scripts/build-exe.ps1 y va al Release, no al repo
+MeM-Instalador.exe

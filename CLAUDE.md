@@ -10,7 +10,18 @@ App personal de Diego: backend FastAPI (`mem/`) + PWA sin build step (`mem/stati
 
 Es el instalador unificado: bootstrap en máquina nueva (`irm .../install.ps1 | iex`) o actualización in-place (`.\install.ps1` corrido desde un checkout — detecta que ya está dentro del repo por `pyproject.toml` en `$PSScriptRoot` y hace `git pull` en vez de clonar). Si cambian los pasos de instalación (dependencias, extras opcionales, `config.toml`, autostart), actualizar el script y `MANUAL.md` juntos.
 
-`Instalar-MeM.bat` es el doble clic: llama a `install.ps1` con `-ExecutionPolicy Bypass` (solo para ese proceso) y hace `pause` al final para que se lea el resultado. Deliberadamente NO es un `.exe`: uno sin firmar dispara SmartScreen y habría que recompilarlo en cada cambio del `.ps1`.
+`Instalar-MeM.bat` es el doble clic **sobre un checkout ya clonado**: llama a `install.ps1` con `-ExecutionPolicy Bypass` (solo para ese proceso) y hace `pause` al final para que se lea el resultado.
+
+## MeM-Instalador.exe
+
+El doble clic para una **máquina limpia**. Lo arma `scripts/build-exe.ps1` con `csc.exe`, el compilador de C# que viene con .NET Framework 4.x y por lo tanto con Windows — sin ps2exe, sin PSGallery, sin SDK. Es una app de **consola** a propósito: hereda la ventana al proceso hijo, y por eso `install.ps1` puede preguntar `Instalar Ollama? [s/N]` y leer la respuesta.
+
+No se comitea (está en `.gitignore`): vive como asset del Release. Y **no lleva `install.ps1` adentro** — solo corre el one-liner `irm ... | iex`. Por eso se compila una vez y no queda viejo: los cambios del instalador le llegan solos al que ya lo bajó, en vez de haber que recompilar y volver a subir el `.exe` en cada cambio. Solo hay que rehacerlo si cambia la URL del repo.
+
+Dos cosas ya probadas que no hay que volver a intentar:
+
+- **`iexpress.exe` no sirve** (era el candidato obvio: también nativo, hace un self-extractor). Arma el paquete sin chistar y con exit 0, pero en Windows 11 26200 **no ejecuta su `AppLaunched`** — comprobado con un payload que solo escribía un archivo, y no lo escribió. Además falla con exit 1 y sin decir nada si las rutas se le hacen largas.
+- **SmartScreen va a aparecer igual** y no es un bug del script: un `.exe` sin firmar bajado de internet lo dispara siempre. Firmarlo son ~USD 200-400/año. Está documentado en `MANUAL.md` con el camino de clics, junto al one-liner como alternativa sin fricción.
 
 Tres cosas que ya costaron encontrarlas y no hay que deshacer:
 

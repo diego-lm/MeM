@@ -6,11 +6,15 @@ Frontend real (PWA) sobre el diseño **Organic** de Claude Design, en `mem/stati
 
 ## Instalación
 
+Doble clic en **`MeM-Instalador.exe`** ([último Release](https://github.com/diego-lm/MeM/releases/latest)), o una línea en PowerShell:
+
 ```powershell
 irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
 ```
 
-En una máquina limpia instala lo que falte (git, Python por winget), clona, arma el entorno virtual e instala dependencias, y ofrece los componentes opcionales — LM Studio, Ollama, ComfyUI — que después se ponen y se sacan desde Ajustes › Media › Componentes (`componentes.json` + `mem/componentes.py`, motor winget). También sirve el doble clic en `Instalar-MeM.bat` sobre un checkout ya clonado. Guía completa (requisitos, actualizar un checkout existente, primer arranque, comandos) en [MANUAL.md](MANUAL.md).
+Los dos hacen lo mismo: en una máquina limpia instalan lo que falte (git, Python por winget), clonan, arman el entorno virtual e instalan dependencias, y ofrecen los componentes opcionales — LM Studio, Ollama, ComfyUI — que después se ponen y se sacan desde Ajustes › Media › Componentes (`componentes.json` + `mem/componentes.py`, motor winget). También sirve el doble clic en `Instalar-MeM.bat` sobre un checkout ya clonado. Guía completa (requisitos, actualizar un checkout existente, primer arranque, comandos) en [MANUAL.md](MANUAL.md).
+
+El `.exe` lo arma [`scripts/build-exe.ps1`](scripts/build-exe.ps1) con el `csc.exe` que trae Windows, y **no lleva `install.ps1` adentro**: solo corre el one-liner de arriba. Por eso se compila una vez y no queda viejo — no hay que recompilarlo ni volver a subirlo cuando cambia el instalador. No se comitea (`.gitignore`); vive en el Release.
 
 Proveedores de IA en `config.toml` (cambiar = editar ese archivo o Ajustes → Proveedor de IA en la app):
 

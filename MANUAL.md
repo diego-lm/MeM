@@ -10,13 +10,17 @@ MeM es tu memoria personal: una base de Markdown (`hamuQ/`, en Dropbox) que capt
 
 ### Máquina nueva
 
-Una línea en PowerShell, sin cuenta de GitHub ni nada instalado de antes:
+**Opción 1 — el ejecutable.** Bajar `MeM-Instalador.exe` del [último Release](https://github.com/diego-lm/MeM/releases/latest) y hacerle doble clic. No hace falta tener nada instalado ni cuenta de GitHub.
+
+Windows va a mostrar **"Windows protegió tu PC"** (SmartScreen), porque el `.exe` no está firmado — firmar cuesta unos USD 200-400 por año. Para seguir: *Más información* → *Ejecutar de todas formas*. Si preferís no pasar por ahí, usá la opción 2, que hace exactamente lo mismo.
+
+**Opción 2 — una línea en PowerShell.** Sin SmartScreen de por medio:
 
 ```powershell
 irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
 ```
 
-En una máquina limpia hace todo: instala lo que falte (git, Python), clona el repo en `%USERPROFILE%\MeM`, crea el entorno virtual, instala dependencias, copia `config.example.toml` → `config.toml`, ofrece los componentes opcionales y deja un acceso directo para que MeM arranque solo al iniciar sesión.
+Las dos hacen lo mismo (el `.exe` corre esa misma línea): instalan lo que falte (git, Python), clonan el repo en `%USERPROFILE%\MeM`, crean el entorno virtual, instalan dependencias, copian `config.example.toml` → `config.toml`, ofrecen los componentes opcionales y dejan un acceso directo para que MeM arranque solo al iniciar sesión. Lo que ya esté instalado se detecta y se saltea.
 
 Si preferís ver el script antes de correrlo (buena costumbre con cualquier `| iex`), bajalo primero y hacele doble clic a `Instalar-MeM.bat` después de clonar:
 
@@ -26,7 +30,7 @@ git clone https://github.com/diego-lm/MeM.git "$env:USERPROFILE\MeM"
 
 Lo único que tiene que estar de antes es **winget** (el "Instalador de aplicaciones" de Windows), que viene con Windows 10/11; si falta, se pone desde la Microsoft Store.
 
-Parámetros:
+Parámetros (para la opción 2 o para `install.ps1` desde un checkout; el `.exe` corre siempre con los valores por omisión):
 - `-Con <ids>` — instalar estos componentes sin preguntar, p. ej. `-Con lmstudio,comfyui`.
 - `-SinPreguntar` — desatendido: solo MeM, ningún componente opcional.
 - `-Destino <carpeta>` — instalar en otro lado (default `%USERPROFILE%\MeM`).
@@ -43,7 +47,7 @@ Ni MeM ni el instalador traen los motores de IA: los instala **winget**, el gest
 | **Ollama** | la otra vía de modelos locales, por línea de comandos; sirve en `localhost:11434/v1` | `Ollama.Ollama` |
 | **ComfyUI** | generación local de imagen y video (backend `local` del modo media) | `Comfy.ComfyUI-Desktop` |
 
-El instalador los ofrece uno por uno; después se ponen y se sacan desde **Ajustes › Media › Componentes**, sin volver a la terminal. Windows puede pedir permiso (UAC) en la PC mientras winget trabaja, aunque la orden haya salido del celular.
+El instalador **solo ofrece lo que falta**: mira el estado de cada uno y el que ya está lo marca `[ok]` y lo saltea, así que no hay riesgo de terminar con dos ComfyUI. De los que faltan pregunta uno por uno (`Instalar Ollama? [s/N]`), y con `-Con lmstudio,comfyui` los instala sin preguntar nada. Después se ponen y se sacan desde **Ajustes › Media › Componentes**, sin volver a la terminal. Windows puede pedir permiso (UAC) en la PC mientras winget trabaja, aunque la orden haya salido del celular.
 
 Un componente que instalaste **a mano** (un ComfyUI clonado a pulso, LM Studio puesto por su `.exe`) aparece como "instalado a mano" y no ofrece desinstalar: winget no puede sacar lo que no puso. Se saca por donde se puso.
 
