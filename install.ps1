@@ -1,4 +1,4 @@
-# Instalador unificado de MeM.
+﻿# Instalador unificado de MeM.
 #
 # Máquina nueva (clona y arma todo):
 #   irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
@@ -18,9 +18,10 @@ $repo = "diego-lm/MeM"
 function Fallar($msg) { Write-Host "`n✗ $msg" -ForegroundColor Red; exit 1 }
 function Paso($msg) { Write-Host "`n→ $msg" -ForegroundColor Cyan }
 
-# Si el script corre desde un checkout existente (doble clic, .\install.ps1),
-# actualiza ESE lugar en vez de clonar uno nuevo en $Destino.
-if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) {
+# Si el script corre desde un checkout existente (doble clic, .\install.ps1) y
+# no se pasó -Destino a mano, actualiza ESE lugar en vez de clonar uno nuevo.
+if (-not $PSBoundParameters.ContainsKey('Destino') -and $PSScriptRoot -and
+    (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) {
     $Destino = $PSScriptRoot
 }
 $yaClonado = Test-Path (Join-Path $Destino ".git")
