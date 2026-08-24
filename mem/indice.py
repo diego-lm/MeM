@@ -53,7 +53,11 @@ MIN_BASE_Z = 20
 UMBRAL_BM25 = -2.5
 RX_WIKILINK = re.compile(r"\[\[([a-z0-9-]+)(?:\|[^\]]*)?\]\]")
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-UA = "MeM/1.0 (memoria personal local)"
+# Nominatim exige que el User-Agent identifique la aplicación; el contacto es
+# recomendación para uso intensivo, y sale del entorno para que el repo no lleve
+# el mail de nadie. Quien geocodifique mucho hace `set MEM_CONTACTO=...`.
+_CONTACTO = os.environ.get("MEM_CONTACTO", "").strip()
+UA = f"MeM/1.0 (memoria personal local{'; ' + _CONTACTO if _CONTACTO else ''})"
 
 # Debounce del barrido de mtimes: dentro de esta ventana, sincronizar() sin
 # forzar no barre (una pantalla dispara varias consultas seguidas). Las

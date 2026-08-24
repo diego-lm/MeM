@@ -169,6 +169,9 @@ Los clientes de IA tienen 240s de timeout. Si el proveedor es `openai` (LM Studi
 **Falla la instalación del extra `[audio]`**
 `faster-whisper` trae `ctranslate2`, que en Windows necesita cuBLAS/cuDNN aparte para GPU — sin eso corre en CPU (más lento pero funciona). Es opcional: sin él, una captura de audio queda pendiente con el motivo, nada se rompe.
 
+**El mapa no geocodifica lugares**
+El mapa usa Nominatim (OpenStreetMap), que limita a 1 consulta por segundo y pide que el User-Agent identifique la app. MeM ya lo hace; si vas a geocodificar mucho, su política recomienda dar un contacto: `setx MEM_CONTACTO tu@mail.com` y reiniciar el servidor. No es obligatorio para uso normal.
+
 **"No encuentro winget" con winget instalado**
 El alias de winget vive en `%LOCALAPPDATA%\Microsoft\WindowsApps`, que no siempre está en el PATH del proceso. MeM lo busca igual por esa ruta, así que el aviso solo aparece si de verdad falta el "Instalador de aplicaciones" — se pone desde la Microsoft Store.
 
