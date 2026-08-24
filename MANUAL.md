@@ -10,31 +10,21 @@ MeM es tu memoria personal: una base de Markdown (`hamuQ/`, en Dropbox) que capt
 
 ### Máquina nueva
 
-El repositorio es **privado**, así que primero hay que darle acceso a esa máquina. En PowerShell:
+Una línea en PowerShell, sin cuenta de GitHub ni nada instalado de antes:
 
 ```powershell
-winget install GitHub.cli
+irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
 ```
+
+En una máquina limpia hace todo: instala lo que falte (git, Python), clona el repo en `%USERPROFILE%\MeM`, crea el entorno virtual, instala dependencias, copia `config.example.toml` → `config.toml`, ofrece los componentes opcionales y deja un acceso directo para que MeM arranque solo al iniciar sesión.
+
+Si preferís ver el script antes de correrlo (buena costumbre con cualquier `| iex`), bajalo primero y hacele doble clic a `Instalar-MeM.bat` después de clonar:
 
 ```powershell
-gh auth login
+git clone https://github.com/diego-lm/MeM.git "$env:USERPROFILE\MeM"
 ```
-
-```powershell
-gh repo clone diego-lm/MeM "$env:USERPROFILE\MeM"
-```
-
-Y ahí, doble clic en `Instalar-MeM.bat` dentro de la carpeta, o desde la misma terminal:
-
-```powershell
-& "$env:USERPROFILE\MeM\install.ps1"
-```
-
-De ahí en adelante hace todo solo: instala lo que falte (git, Python), crea el entorno virtual, instala dependencias, copia `config.example.toml` → `config.toml`, ofrece los componentes opcionales y deja un acceso directo para que MeM arranque solo al iniciar sesión.
 
 Lo único que tiene que estar de antes es **winget** (el "Instalador de aplicaciones" de Windows), que viene con Windows 10/11; si falta, se pone desde la Microsoft Store.
-
-> **Si el repo pasara a público**, los tres primeros pasos se reemplazan por una sola línea que no pide cuenta de GitHub — `irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex`. Con el repo privado esa URL devuelve 404: `raw.githubusercontent.com` no lleva credenciales.
 
 Parámetros:
 - `-Con <ids>` — instalar estos componentes sin preguntar, p. ej. `-Con lmstudio,comfyui`.

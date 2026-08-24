@@ -18,9 +18,11 @@ Tres cosas que ya costaron encontrarlas y no hay que deshacer:
 - Los `.bat` van con **CRLF y sin BOM**, forzado por `.gitattributes`. `cmd.exe` los lee buscando por posición y con LF se le corre el offset y se come el primer carácter de una línea (`REM` → `EM`). Depende del tamaño del archivo, así que uno corto parece andar y el de al lado no — no confiar en el `core.autocrlf` de cada máquina.
 - **El primer `python` del PATH no es confiable**: puede ser el venv de otro proyecto, así que se filtran los `\venv\` y se pregunta la versión.
 
-## El repo es privado
+## El repo es PÚBLICO
 
-Por eso NO hay one-liner de `raw.githubusercontent` (devuelve 404 sin credenciales — verificado). El camino documentado es `gh auth login` + `gh repo clone`. Si algún día pasa a público, el one-liner vuelve a servir y hay que actualizar MANUAL.md y README.md juntos.
+Desde el 2026-08-24. Lo que se comitea acá lo lee cualquiera, así que antes de agregar un ejemplo con una URL, un host o un mail: los datos personales van a `config.toml` (gitignoreado) o a una variable de entorno, y en el repo queda un placeholder. Precedentes: el host del tailnet es `tu-maquina.tu-tailnet.ts.net` en README y `mem-plugin/.mcp.json`, y el contacto de Nominatim sale de `MEM_CONTACTO` (`indice.py`), no del código.
+
+Y ojo con el historial: reescribirlo NO borra nada de GitHub — los commits viejos se siguen sirviendo por SHA aunque queden fuera de toda rama (comprobado). Si alguna vez se cuela un secreto en un commit, el arreglo real es rotar el secreto, no reescribir.
 
 ## Componentes (winget)
 

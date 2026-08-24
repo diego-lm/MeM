@@ -7,10 +7,10 @@ Frontend real (PWA) sobre el diseño **Organic** de Claude Design, en `mem/stati
 ## Instalación
 
 ```powershell
-gh repo clone diego-lm/MeM "$env:USERPROFILE\MeM"
+irm https://raw.githubusercontent.com/diego-lm/MeM/main/install.ps1 | iex
 ```
 
-Y doble clic en `Instalar-MeM.bat` (o correr `install.ps1`): instala lo que falte (git, Python por winget), arma el entorno virtual e instala dependencias, y ofrece los componentes opcionales — LM Studio, Ollama, ComfyUI — que después se ponen y se sacan desde Ajustes › Media › Componentes (`componentes.json` + `mem/componentes.py`, motor winget). El repo es privado: hace falta `gh auth login` antes, y por eso no hay one-liner de `raw.githubusercontent`. Guía completa (requisitos, actualizar un checkout existente, primer arranque, comandos) en [MANUAL.md](MANUAL.md).
+En una máquina limpia instala lo que falte (git, Python por winget), clona, arma el entorno virtual e instala dependencias, y ofrece los componentes opcionales — LM Studio, Ollama, ComfyUI — que después se ponen y se sacan desde Ajustes › Media › Componentes (`componentes.json` + `mem/componentes.py`, motor winget). También sirve el doble clic en `Instalar-MeM.bat` sobre un checkout ya clonado. Guía completa (requisitos, actualizar un checkout existente, primer arranque, comandos) en [MANUAL.md](MANUAL.md).
 
 Proveedores de IA en `config.toml` (cambiar = editar ese archivo o Ajustes → Proveedor de IA en la app):
 
