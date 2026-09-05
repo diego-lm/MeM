@@ -13,7 +13,10 @@ import { get, post } from "../api.js";
 import { ScreenHead } from "../ui.js";
 
 const IGNORADOS_KEY = "mem.lint.ignorados";
-const leerIgnorados = () => { try { return new Set(JSON.parse(localStorage.getItem(IGNORADOS_KEY) || "[]")); } catch { return new Set(); } };
+// exportado: el contador de Memory tiene que descontar lo MISMO que esta
+// pantalla esconde, si no anuncia "5 avisos" y al abrir dice "Sin avisos"
+// (pedido 2026-09-05 — la lista de ignorados vive solo en este navegador).
+export const leerIgnorados = () => { try { return new Set(JSON.parse(localStorage.getItem(IGNORADOS_KEY) || "[]")); } catch { return new Set(); } };
 const RX_DUP = /^posible duplicado \(similitud ([\d.]+), (.+?) ≈ (.+?)\): Entradas\/([\w-]+)\.md ≈ Entradas\/([\w-]+)\.md$/;
 const RX_MEDIO = /^medio sin entrada \(.*\): (.+)$/;
 // los cuatro tipos de aviso semántico llevan su clave adelante: sirve para

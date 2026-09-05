@@ -425,7 +425,9 @@ export function Home() {
                 <span>${hoy.toLocaleDateString(s.lang === "en" ? "en-GB" : "es-ES", { month: "short" })}</span>
               </span>
             </span>
-            <${IndicadorVersion} lang=${s.lang} />
+            <!-- en escritorio la versión vive en el sidebar (como la mascota):
+                 acá sobraría duplicada -->
+            <${IndicadorVersion} lang=${s.lang} clase="mem-home-ver" />
             <div role="button" tabindex="0" onClick=${() => setState({ theme: dark ? "light" : "dark", themePref: dark ? "light" : "dark" })}
                  style="width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:var(--color-surface)">
               ${dark ? "☾" : "☀"}

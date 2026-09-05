@@ -121,23 +121,23 @@ Si el ícono no está, doble clic en `MeM.bat` lo vuelve a levantar (un mutex ev
   | **mindmap** | nodos y relaciones entre temas y memorias |
   | **timeline** | los hechos de un tema en orden cronológico |
 
-- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI. Se llega también con el ícono `⚙` de Home, al lado del de tema claro/oscuro.
+- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI. Se entra por el ícono `⚙` de Home, al lado del de tema claro/oscuro (en el celular está además en la barra de abajo).
 
-Home muestra la versión (`vN`) al lado de ese mismo ícono. Si el servidor corriendo quedó atrás del código en disco, en vez del número aparece un botón de actualizar (el mismo reinicio remoto de Ajustes › Procesamiento).
+La versión (`vN`) se muestra al pie de la columna de la izquierda en compu, y en la banda de Home en el celular. Si el servidor que está corriendo quedó atrás del código en disco, el número se convierte en un botón **⟳ actualizar a vN** que reinicia el servidor sin tocar la máquina.
 
 ### Proyectos y privado
 
-El selector de proyecto (chip del costado en compu, última pestaña en el celular) tiene tres zonas: **Todo** (la biblioteca compartida: lo público de todos los proyectos), la lista de tus proyectos (los privados marcados con `⚿`), y **✎ Gestionar** para crear, renombrar, unir, borrar o marcar un proyecto como privado.
+El selector de proyecto (chip del costado en compu, última pestaña en el celular) tiene dos zonas: **Todo** (la biblioteca compartida: lo público de todos los proyectos) y la lista de tus proyectos (los privados marcados con `⚿`). El **＋** de al lado crea uno nuevo, y desde ahí mismo (`⋯` en cada fila) se renombra, se une, se borra o se marca como privado.
 
 Un proyecto ordena; uno **privado** además encierra: todo lo suyo (sesiones, memorias, capturas, medios) solo se ve parado en él. Marcar un proyecto como privado o público cambia la visibilidad de todo lo suyo al instante — no hay nada que migrar a mano. En el celular, lo privado queda tapado hasta tocar "Ver privado" y verificar con huella/cara/PIN; en compu se ve siempre, marcado en rojo.
 
-Parado en un proyecto, la pantalla **Memory** solo lista lo de ese proyecto (no lo público de los demás mezclado); parado en **Todo**, lista lo público de todos.
+Parado en un proyecto, la pantalla **Memory** lista lo de ese proyecto **y lo que no tiene proyecto** (la biblioteca compartida), pero no lo de los otros proyectos; parado en **Todo**, lista todo lo público. Para ver juntas solo las memorias sueltas está la opción **Sin proyecto** del dropdown de *Explorar › Proyectos*, que además deja mirar cualquier otro proyecto sin moverse del activo.
 
 Una memoria o sesión vive en un solo proyecto. Para "compartir" algo que está en un proyecto privado, se la mueve a **Todo**: tocar el chip **Proyecto: …** de la ficha (o el de la sesión) abre "Mover a…", el mismo mecanismo en los dos casos.
 
 En una sesión de chat, **Guardar en memoria** (menú `⋯`, o el aviso cuando el contexto se llena) destila lo hablado a la Biblioteca sin tocar la sesión; una casilla opcional "y archivar la sesión" además la archiva. Lo destilado hereda el proyecto de la sesión — y su privacidad — sin ninguna marca aparte.
 
-Desde **✎ Gestionar**, un proyecto privado puede generar una **clave de acceso** (botón "Clave de acceso (MCP/CLI)"): la única forma de que Claude Desktop/Code o el CLI lean ese proyecto (ver [Conectar MeM a Claude](#conectar-mem-a-claude) más abajo). Se muestra una sola vez al generarla.
+Desde el editor de proyectos (el **＋** del selector, luego `⋯` en la fila), un proyecto privado puede generar una **clave de acceso** (botón "Clave de acceso (MCP/CLI)"): la única forma de que Claude Desktop/Code o el CLI lean ese proyecto (ver [Conectar MeM a Claude](#conectar-mem-a-claude) más abajo). Se muestra una sola vez al generarla.
 
 ### Comandos (`mem ...`)
 
@@ -162,7 +162,7 @@ Con el entorno activado (`.venv\Scripts\activate`) o llamando `.venv\Scripts\mem
 | `mem sintesis "Tema/Subtema"` | crea o regenera la página de síntesis de un tema |
 | `mem ids` | one-shot: asigna id/versión a entradas viejas sin versionar |
 
-Sin `--proyecto`, estos comandos solo ven **Todo** (lo público). `--proyecto P` suma lo de ese proyecto; si es privado, hace falta además `--clave K` (la que generás en Ajustes › ✎ Gestionar › Clave de acceso (MCP/CLI)).
+Sin `--proyecto`, estos comandos solo ven **Todo** (lo público). `--proyecto P` suma lo de ese proyecto; si es privado, hace falta además `--clave K` (la que generás en el editor de proyectos › `⋯` › Clave de acceso (MCP/CLI)).
 
 ## Conectar MeM a Claude
 

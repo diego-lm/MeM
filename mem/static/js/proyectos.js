@@ -31,7 +31,7 @@ export function useProyectosVisibles() {
  *  en un Sheet — el back de hardware lo cierra solo (pilaSheets en ui.js).
  *  Cuando la mutación toca al proyecto activo, el sync lo hace ACÁ (sabe
  *  viejo→nuevo) y no cada pantalla que monta el chip. */
-export function EditorProyectos({ valor, onPick, lang, onClose }) {
+export function EditorProyectos({ valor, onPick, lang, onClose, abrirEnNuevo = false }) {
   const L = dict(lang);
   const lista = useProyectosVisibles();
   const [abierta, setAbierta] = useState("");     // proyecto con sus acciones desplegadas
@@ -40,7 +40,7 @@ export function EditorProyectos({ valor, onPick, lang, onClose }) {
   const [destino, setDestino] = useState("");
   const [privadoNuevo, setPrivadoNuevo] = useState(false);
   const [claveNueva, setClaveNueva] = useState("");
-  const [creando, setCreando] = useState(false);
+  const [creando, setCreando] = useState(abrirEnNuevo);  // el ＋ del sidebar abre ya en "nuevo"
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState("");
   useEscape(true, onClose);

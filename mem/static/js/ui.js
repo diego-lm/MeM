@@ -560,7 +560,10 @@ export function Sidebar({ EditorProyectos }) {
     <aside class="mem-sidebar">
       <div class="mem-sidebar-brand">Me<span style="color:var(--color-accent)">M</span></div>
       <nav class="mem-sidebar-nav">
-        ${NAV.map((n) => {
+        <!-- sin Ajustes (pedido 2026-09-05): en escritorio se entra por el ⚙ de
+             Home, al lado del tema. En el celular no hay sidebar y el tab bar
+             SÍ lo conserva — es su única puerta. -->
+        ${NAV.filter((n) => n.id !== "settings").map((n) => {
           const on = s.screen === n.id;
           return html`
             <div role="button" tabindex="0" class="mem-sidebar-item ${on ? "on" : ""}" onClick=${() => go(n.id)}>
@@ -583,12 +586,15 @@ export function Sidebar({ EditorProyectos }) {
                        estilo="flex:1;min-width:0;max-width:none;justify-content:space-between"
                        items=${itemsDeProyectos(proyectosTodos, proyecto, [{ id: "", label: L.tProjAll }], s.lang)}
                        onPick=${(n) => setState({ proyecto: n })} />
-          <span role="button" tabindex="0" title=${L.tProjects} class="mem-hit"
+          <!-- ＋ y no ✎ (pedido 2026-09-05): lo que se viene a hacer acá el 90%
+               de las veces es crear uno — el editor abre directo en "nuevo", y
+               renombrar/privado/unir/borrar siguen a un tap de ahí. -->
+          <span role="button" tabindex="0" title=${L.tNewProject} class="mem-hit"
                 onClick=${() => setGestionando(true)}
-                style="width:32px;height:32px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px">✎</span>
+                style="width:32px;height:32px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px">＋</span>
         </div>
         ${gestionando && html`
-          <${EditorProyectos} valor=${proyecto} lang=${s.lang}
+          <${EditorProyectos} valor=${proyecto} lang=${s.lang} abrirEnNuevo=${true}
                                onPick=${(n) => setState({ proyecto: n })}
                                onClose=${() => setGestionando(false)} />`}
         <div class="mem-sidebar-ses-list">
@@ -613,6 +619,9 @@ export function Sidebar({ EditorProyectos }) {
              agente YA se apaga cuando el server no responde, con su title. -->
         <div class="mem-sidebar-capa">
           <${AgentesEstado} />
+          <!-- versión de la app, y el botón de actualizar cuando el server que
+               corre quedó atrás del código en disco (pedido 2026-09-05) -->
+          <div style="padding:8px 10px 0"><${IndicadorVersion} lang=${s.lang} /></div>
         </div>
       </div>
     </aside>`;
@@ -1202,21 +1211,24 @@ export function useReiniciarServidor(onListo) {
  *  disco (pedido 2026-09-05, mismo bug que ya pasaba en Ajustes: el .js se lee
  *  siempre del disco pero Python es el del arranque), se vuelve un botón de
  *  reinicio en vez de solo texto. */
-export function IndicadorVersion({ lang }) {
+export function IndicadorVersion({ lang, clase = "" }) {
   const en = lang === "en";
   const [vServer, setVServer] = useState(null);
   useEffect(() => { get("/health").then((h) => setVServer(h.version || 0)).catch(() => {}); }, []);
   const { fase, iniciar } = useReiniciarServidor(() => setVServer(VERSION.n));
-  if (vServer === null || vServer === VERSION.n) return html`<span style="font-family:var(--font-mono);font-size:10px;opacity:.4">v${VERSION.n}</span>`;
+  if (vServer === null || vServer === VERSION.n)
+    return html`<span class=${clase} style="font-family:var(--font-mono);font-size:10px;opacity:.4">v${VERSION.n}</span>`;
   const txt = {
-    idle: en ? "⟳ update" : "⟳ actualizar",
+    idle: en ? `⟳ update v${VERSION.n}` : `⟳ actualizar a v${VERSION.n}`,
     confirmar: en ? "tap again" : "tocá de nuevo",
-    reiniciando: en ? "…" : "…",
-    listo: "✓",
+    reiniciando: en ? "restarting…" : "reiniciando…",
+    listo: en ? "✓ done" : "✓ listo",
     fallo: en ? "failed" : "falló",
   }[fase];
-  return html`<span role="button" tabindex="0" onClick=${iniciar}
-        style="font-family:var(--font-mono);font-size:10px;color:var(--color-accent-700);cursor:pointer">${txt}</span>`;
+  return html`
+    <span role="button" tabindex="0" onClick=${iniciar} class=${`mem-btn-accent ${clase}`}
+          title=${en ? `server on v${vServer}, code on v${VERSION.n}` : `el server corre v${vServer} y el código es v${VERSION.n}`}
+          style="height:26px;padding:0 9px;border-radius:var(--radius-md);display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:10px;white-space:nowrap;cursor:pointer">${txt}</span>`;
 }
 
 export const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
@@ -1742,6 +1754,8 @@ const CSS = `
      justo para la fila de fecha/tema. !important porque el <video> trae su
      display:block inline (le gana a una clase suelta). */
   .mem-home-alpaca{display:none!important}
+  /* la versión también pasa al sidebar acá: duplicada en la banda sobra */
+  .mem-home-ver{display:none!important}
   .mem-home-banda{left:0}
   /* el sidebar pinta su propio fondo: sin esto heredaba el del body y en dark
      mode se quedaba claro (bug reportado). */

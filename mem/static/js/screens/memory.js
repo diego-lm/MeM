@@ -8,7 +8,8 @@ import { dict, fechaRelativa } from "../i18n.js";
 import { get, post } from "../api.js";
 import { ScreenHead, useProyectos, proyectosListos, ChipMenu, norm, TITULO_SEC, onMemoriasCambian,
          IMG_EXT, VID_EXT, AUD_EXT } from "../ui.js";
-import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, BotonVerPrivado } from "../privado.js";
+import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, proyectoDe, BotonVerPrivado } from "../privado.js";
+import { leerIgnorados } from "./lint.js";
 import { Vistazo } from "../vistazo.js";
 import { GraphView } from "../vis/grafo.js";
 import { SemanticMap } from "../vis/scatter.js";
@@ -22,6 +23,9 @@ import { COLORES } from "../vis/util.js";
 // escritos como números sueltos ("vista === 5" era Pendientes) y no había forma
 // de reordenar nada sin cazarlos de a uno.
 const V = { REC: 0, TEMAS: 1, TIEMPO: 2, LUGARES: 3, PROY: 4, PEND: 5, GRAFO: 6, MAPA: 7, MEDIA: 8 };
+// El grupo sin nombre: no es un subject de verdad (ninguna memoria lo lleva),
+// así que sirve de centinela para "las que no cuelgan de ningún proyecto".
+const SIN_PROY = "Proyectos/";
 // Ley de Hick: nueve destinos al mismo nivel son nueve decisiones cada vez que
 // se entra. Quedan cinco — dos directos (lo que más se usa), dos menús que
 // agrupan por lo que uno viene a hacer (buscar algo / verlo dibujado) y
@@ -358,14 +362,10 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // memorias, el árbol de temas (con sus contadores) y el propio inbox. El
   // primer render abre el grupo inicial; las recargas posteriores NO lo tocan,
   // que si no cada memoria procesada te devolvería al primer tema.
-  // parado en un proyecto: solo lo suyo (pedido 2026-09-05, más estricto que el
-  // X-Proyecto de por sí — ese deja ver lo público de los demás también). En
-  // Todo, sin filtro: lo que X-Proyecto ya acota (solo público).
-  const subjectProy = s.proyecto ? `&subject=${encodeURIComponent(`Proyectos/${s.proyecto}`)}` : "";
   function cargarMemorias(primera = false) {
     // sin catch, un server caído dejaba el árbol y su contador en "…" para siempre
     get("/memory/tree").then((t) => { setArbol(t); if (primera) setAbierto(t[0]?.nombre ?? null); }).catch(() => setArbol([]));
-    get(`/memory/search${subjectProy ? "?" + subjectProy.slice(1) : ""}`).then(setTodas).catch(() => setTodas([]));
+    get("/memory/search").then(setTodas).catch(() => setTodas([]));
     get("/inbox").then(setInboxItems).catch(() => {});
   }
 
@@ -373,7 +373,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     cargarMemorias(true);
     Promise.all([get("/sessions"), get("/sessions?archivadas=1")])
       .then(([a, b]) => setSesiones([...a, ...b])).catch(() => {});
-    get("/lint").then((r) => setLintCount(r.problemas.length)).catch(() => {});
+    get("/lint").then((r) => { const ign = leerIgnorados(); setLintCount(r.problemas.filter((p) => !ign.has(p)).length); }).catch(() => {});
     // el procesador de fondo avisa cada vez que termina una memoria: con Memory
     // abierta la lista y el contador se ponen al día solos (pedido 2026-08-08)
     return onMemoriasCambian(() => cargarMemorias());
@@ -386,7 +386,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   useEffect(() => {
     if (!q) { setResultados(null); return; }
     const timer = setTimeout(() => {
-      get(`/memory/search?texto=${encodeURIComponent(query.trim())}&orden=relevancia${subjectProy}`)
+      get(`/memory/search?texto=${encodeURIComponent(query.trim())}&orden=relevancia`)
         .then(setResultados).catch(() => setResultados([]));
     }, 250);
     return () => clearTimeout(timer);
@@ -404,17 +404,32 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // filtran una vez acá y así ninguna lista derivada las arrastra.
   const sinLeer = useMemo(() => (todas || []).filter((r) => (r.pendiente || []).length && !ocultarMem(r)),
     [todas, oculto, proyectos]);
-  // los filtros por tipo y por candado se aplican UNA vez acá: todas las vistas
-  // derivan de `visibles`
+  // los filtros por tipo, proyecto y candado se aplican UNA vez acá: todas las
+  // vistas derivan de `visibles`
   const pasaTipo = (r) => !tipos.length || tipos.includes(tipoDe(r));
-  const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && !ocultarMem(r)),
+  // Parado en un proyecto se ve lo SUYO y lo que no tiene proyecto (la
+  // biblioteca compartida), nunca lo de otro proyecto. Filtrar por
+  // `subject=Proyectos/<n>` en el server (v93) también se comía las memorias
+  // sin proyecto, que acá son la mayoría — se veían 13 de 62 (pedido
+  // 2026-09-05). En Todo no filtra nada: el server ya acotó a lo público.
+  const pasaProyecto = (r) => { const p = proyectoDe(r); return !s.proyecto || !p || p === s.proyecto; };
+  const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaProyecto(r) && !ocultarMem(r)),
+    [todas, tipos, oculto, proyectos, s.proyecto]);
+  // …salvo cuando el subject elegido YA es un proyecto (vista Proyectos): ahí el
+  // filtro de arriba sobra y encima vaciaba la lista de todo proyecto que no
+  // fuera el activo. Lo privado ajeno sigue afuera: eso lo acota el server.
+  const visiblesSinProy = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && !ocultarMem(r)),
     [todas, tipos, oculto, proyectos]);
-  const resultadosVis = useMemo(() => (resultados || []).filter((r) => pasaTipo(r) && !ocultarMem(r)),
-    [resultados, tipos, oculto, proyectos]);
+  const resultadosVis = useMemo(() => (resultados || []).filter((r) => pasaTipo(r) && pasaProyecto(r) && !ocultarMem(r)),
+    [resultados, tipos, oculto, proyectos, s.proyecto]);
 
   // vistas de exploración (todas en memoria, filtros al instante)
-  const porSubject = useMemo(() => !subjectClic ? [] : visibles.filter((r) =>
-    (r.subjects || []).some((x) => x === subjectClic || String(x).startsWith(subjectClic + "/"))), [visibles, subjectClic]);
+  const porSubject = useMemo(() => {
+    if (!subjectClic) return [];
+    const base = subjectClic.startsWith(SIN_PROY) ? visiblesSinProy : visibles;
+    if (subjectClic === SIN_PROY) return base.filter((r) => !proyectoDe(r));
+    return base.filter((r) => (r.subjects || []).some((x) => x === subjectClic || String(x).startsWith(subjectClic + "/")));
+  }, [visibles, visiblesSinProy, subjectClic]);
   const recientes = useMemo(() => {
     const corte = Date.now() - (VENTANAS.find(([id]) => id === ventana)?.[1] ?? 604800e3);
     return visibles.filter((r) => (r.ts ? r.ts * 1000 : instante(r).getTime()) >= corte);
@@ -467,10 +482,14 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const proyectosVis = proyectos.filter((p) => !oculto || !p.privado);
   const proyecto = String(s.proyecto || "");
   const proyectoElegido = vistaReal === V.PROY && subjectClic ? subjectClic.split("/")[1] : "";
+  // "Proyectos/" pelado = el cajón de las que no cuelgan de ningún proyecto: es
+  // la mayoría de la Biblioteca y sin esta opción no había forma de verlas
+  // juntas (volvió por pedido 2026-09-05, era el viejo chip "Sin proyecto").
+  const sinProySel = vistaReal === V.PROY && subjectClic === SIN_PROY;
   const proyPriv = (n) => proyectos.some((p) => p.nombre === n && p.privado);
   useEffect(() => {
-    if (vistaReal === V.PROY && !subjectClic && proyectosVis.length)
-      setSubjectClic(`Proyectos/${proyectosVis[0].nombre}`);
+    if (vistaReal === V.PROY && !subjectClic)
+      setSubjectClic(proyectosVis.length ? `Proyectos/${proyectosVis[0].nombre}` : SIN_PROY);
   }, [vistaReal, subjectClic, proyectos, oculto]);
 
   async function reprocesar(slugs) {
@@ -560,12 +579,14 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
                    class="mem-tira ${vistaReal === V.PEND ? "on" : "mem-vista-pend"}">
                 ${L.memViewNames[V.PEND]}<span style="font-weight:700">${sinLeer.length}</span>
               </div>`}`}
-          ${!q && vistaReal === V.PROY && !!proyectosVis.length && html`
-            <${ChipMenu} etiqueta=${`◈ ${proyectoElegido || "…"}`} on=${!!proyectoElegido} ancho=${250}
+          ${!q && vistaReal === V.PROY && html`
+            <${ChipMenu} etiqueta=${`◈ ${sinProySel ? L.tSinProyecto : (proyectoElegido || "…")}`}
+                         on=${!!proyectoElegido || sinProySel} ancho=${250}
                          clase=${proyPriv(proyectoElegido) ? "mem-privada" : ""}
-                         items=${proyectosVis.map((p) => ({ id: p.nombre, label: p.nombre,
+                         items=${[{ id: "", label: L.tSinProyecto, glyph: "◇", on: sinProySel },
+                                  ...proyectosVis.map((p) => ({ id: p.nombre, label: p.nombre,
                            glyph: p.privado ? html`<span class="mem-privada">⚿</span>` : "◈",
-                           sub: p.privado ? L.tPrivado : "", on: p.nombre === proyectoElegido }))}
+                           sub: p.privado ? L.tPrivado : "", on: p.nombre === proyectoElegido }))]}
                          onPick=${(n) => setSubjectClic(`Proyectos/${n}`)} />`}
           <${ChipMenu} etiqueta=${tipos.length ? tipos.map((t) => L.memTypes[t]).join(", ") : L.tAll}
                        on=${!!tipos.length} multi=${true} ancho=${220}
@@ -715,11 +736,10 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
                          elegidos=${elegidos} L=${L} onToggle=${alternarSeleccion} oculta=${ocultarMem} />`}
 
           ${vistaReal === V.PROY && html`
-            ${!proyectosVis.length && html`<div style="opacity:.5;font-size:13px">${L.tNoProjects}</div>`}
-            ${!!proyectoElegido && html`
+            ${(!!proyectoElegido || sinProySel) && html`
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                 ${proyPriv(proyectoElegido) && html`<span class="mem-privada">⚿</span>`}
-                <span style="font-size:12px;opacity:.7">${proyectoElegido} · ${porSubject.length}</span>
+                <span style="font-size:12px;opacity:.7">${sinProySel ? L.tSinProyecto : proyectoElegido} · ${porSubject.length}</span>
               </div>
               ${!porSubject.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
               ${fichas(porSubject)}`}`}

@@ -114,7 +114,7 @@ Los conectores no se dan de alta desde la app: se configuran una sola vez en la 
 
 ### Proyectos privados
 
-Las 5 tools de lectura (`buscar`, `leer_pagina`, `conexiones`, `grep`, `buscar_memorias`) aceptan `proyecto` y `clave`. Sin `proyecto`, Claude solo ve **Todo** (lo público); con `proyecto=<n>` de uno privado hace falta además su `clave` — se genera desde Ajustes › ✎ Gestionar › Clave MCP (se muestra una sola vez) y se valida con `memoria.clave_valida` (hash SHA-256, `hmac.compare_digest`).
+Las 5 tools de lectura (`buscar`, `leer_pagina`, `conexiones`, `grep`, `buscar_memorias`) aceptan `proyecto` y `clave`. Sin `proyecto`, Claude solo ve **Todo** (lo público); con `proyecto=<n>` de uno privado hace falta además su `clave` — se genera desde el editor de proyectos (＋ del selector) › `⋯` › Clave MCP (se muestra una sola vez) y se valida con `memoria.clave_valida` (hash SHA-256, `hmac.compare_digest`).
 
 Por HTTP (claude.ai) la clave va en los argumentos de cada llamada a la tool, porque no hay entorno de por medio. Por stdio (Desktop/Code) `mem/mcp.py` además lee `MEM_CLAVES` del entorno del proceso, así no hay que pasarla en cada pregunta:
 
@@ -135,7 +135,7 @@ Cuando el cliente de Claude no puede mostrar algo (una foto, un video, un markdo
 
 ### Seguridad
 
-El secreto del path es toda la llave y viaja solo por el HTTPS del Funnel. Si se filtra: cambiar `mcp_secreto`, reiniciar `mem serve` y actualizar la URL en el conector. Nunca hacer funnel del 443 (queda la PWA completa expuesta). Si se filtra la clave de un proyecto privado, volver a generarla desde Ajustes › ✎ Gestionar › Clave de acceso invalida la anterior al instante — solo hace falta actualizar `MEM_CLAVES` o el argumento de la tool con la nueva.
+El secreto del path es toda la llave y viaja solo por el HTTPS del Funnel. Si se filtra: cambiar `mcp_secreto`, reiniciar `mem serve` y actualizar la URL en el conector. Nunca hacer funnel del 443 (queda la PWA completa expuesta). Si se filtra la clave de un proyecto privado, volver a generarla desde el editor de proyectos › `⋯` › Clave de acceso invalida la anterior al instante — solo hace falta actualizar `MEM_CLAVES` o el argumento de la tool con la nueva.
 
 ## Frontend (mem/static/)
 
