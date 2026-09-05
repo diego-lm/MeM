@@ -7,6 +7,7 @@ import { dict, MODE_FALLBACK } from "./i18n.js";
 import { bajarAdjunto, get, post, postAttach } from "./api.js";
 import { privadosDe, esSesionPrivada } from "./privado.js";
 import { AUDIO_SVG, Lupa } from "./md.js";
+import { VERSION } from "./version.js";
 
 // -- dictado por voz (Web Speech API) — reemplaza el ticker de palabras falso
 // del prototipo por transcripción real; si el navegador no la soporta, el
@@ -1170,6 +1171,53 @@ export const TITULO_SEC = "font-family:var(--font-mono);font-size:10.5px;letter-
 /** Botón cuadrado de icono del compositor (adjuntar, micrófono, enviar). Estaba
  *  duplicado byte a byte en home.js y chat.js — son el MISMO compositor. */
 export const BTN_ICONO = "width:44px;height:44px;border-radius:var(--radius-md);flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1;cursor:pointer;box-shadow:var(--shadow-sm)";
+
+/** Reinicio remoto del server (POST /server/restart) — dos toques (el segundo
+ *  confirma), luego poll a /health hasta que el proceso nuevo conteste. Lo usan
+ *  el botón de Ajustes y el indicador de versión de Home: mismo flujo, dos sitios. */
+export function useReiniciarServidor(onListo) {
+  const [fase, setFase] = useState("idle"); // idle | confirmar | reiniciando | listo | fallo
+  async function iniciar() {
+    if (fase === "idle") {
+      setFase("confirmar");
+      setTimeout(() => setFase((f) => (f === "confirmar" ? "idle" : f)), 4000);
+      return;
+    }
+    if (fase !== "confirmar") return;
+    setFase("reiniciando");
+    try { await post("/server/restart"); } catch { /* el server puede cortar justo al responder */ }
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const h = await fetch("/health").then((r) => r.json());
+        if (h.ok) { setFase("listo"); onListo?.(); setTimeout(() => setFase("idle"), 3000); return; }
+      } catch { /* aún levantando */ }
+    }
+    setFase("fallo");
+  }
+  return { fase, iniciar };
+}
+
+/** vN chico en Home; si el server (proceso vivo) quedó atrás del código en
+ *  disco (pedido 2026-09-05, mismo bug que ya pasaba en Ajustes: el .js se lee
+ *  siempre del disco pero Python es el del arranque), se vuelve un botón de
+ *  reinicio en vez de solo texto. */
+export function IndicadorVersion({ lang }) {
+  const en = lang === "en";
+  const [vServer, setVServer] = useState(null);
+  useEffect(() => { get("/health").then((h) => setVServer(h.version || 0)).catch(() => {}); }, []);
+  const { fase, iniciar } = useReiniciarServidor(() => setVServer(VERSION.n));
+  if (vServer === null || vServer === VERSION.n) return html`<span style="font-family:var(--font-mono);font-size:10px;opacity:.4">v${VERSION.n}</span>`;
+  const txt = {
+    idle: en ? "⟳ update" : "⟳ actualizar",
+    confirmar: en ? "tap again" : "tocá de nuevo",
+    reiniciando: en ? "…" : "…",
+    listo: "✓",
+    fallo: en ? "failed" : "falló",
+  }[fase];
+  return html`<span role="button" tabindex="0" onClick=${iniciar}
+        style="font-family:var(--font-mono);font-size:10px;color:var(--color-accent-700);cursor:pointer">${txt}</span>`;
+}
 
 export const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
 export const VID_EXT = /\.(mp4|webm|mov|m4v)$/i;

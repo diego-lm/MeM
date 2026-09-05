@@ -9,7 +9,7 @@ import { VERSION } from "../version.js";
 import { get, patch, post, posicion } from "../api.js";
 import { Modalidades, invalidarAgentes, useInboxPend, useProcesando, procesarInbox, ScreenHead,
          ChipMenu, BotonAgente, intervaloVisible, menuFijo, useEscape, useSistema,
-         cargarInboxPend } from "../ui.js";
+         cargarInboxPend, useReiniciarServidor } from "../ui.js";
 import { verificarSiMovil } from "../privado.js";
 
 // Grilla de widgets: celdas iguales que LLENAN el hueco con TODOS los widgets
@@ -1029,19 +1029,7 @@ function IndiceBusqueda({ cfg, onCfg, lang }) {
 // nuevo conteste: el viejo muere <1 s después de responder.
 function BotonReiniciarServidor({ lang, onListo }) {
   const en = lang === "en";
-  const [fase, setFase] = useState("idle"); // idle | confirmar | reiniciando | listo | fallo
-  async function reiniciar() {
-    setFase("reiniciando");
-    try { await post("/server/restart"); } catch { /* el server puede cortar justo al responder */ }
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      try {
-        const h = await fetch("/health").then((r) => r.json());
-        if (h.ok) { setFase("listo"); onListo?.(); setTimeout(() => setFase("idle"), 3000); return; }
-      } catch { /* aún levantando */ }
-    }
-    setFase("fallo");
-  }
+  const { fase, iniciar } = useReiniciarServidor(onListo);
   const txt = {
     idle: en ? "⟳ Restart server" : "⟳ Reiniciar servidor",
     confirmar: en ? "Tap again to confirm" : "Toca de nuevo para confirmar",
@@ -1049,8 +1037,7 @@ function BotonReiniciarServidor({ lang, onListo }) {
     listo: en ? "✓ server is back" : "✓ servidor de vuelta",
     fallo: en ? "did not come back — check the tray on the PC" : "no volvió — mirar el tray en el PC",
   }[fase];
-  const clic = fase === "idle" ? () => { setFase("confirmar"); setTimeout(() => setFase((f) => (f === "confirmar" ? "idle" : f)), 4000); }
-    : fase === "confirmar" ? reiniciar : undefined;
+  const clic = fase === "idle" || fase === "confirmar" ? iniciar : undefined;
   return html`
     <div style="margin-top:18px">
       <div role="button" tabindex="0" onClick=${clic}

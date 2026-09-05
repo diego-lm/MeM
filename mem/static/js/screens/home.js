@@ -11,7 +11,8 @@ import { CornerBrackets, MicButton, Toast, useDictado, dictadoSoportado,
          useAgentes, agenteDe, BotonAgente, ConfirmarBorradoSesion,
          Camara, camaraSoportada, useProyectos, proyectosListos,
          AccionesAdjunto, norm,
-         useAdjuntos, TiraAdjuntos, archivosDelPortapapeles, Alpaca, BTN_ICONO } from "../ui.js";
+         useAdjuntos, TiraAdjuntos, archivosDelPortapapeles, Alpaca, BTN_ICONO,
+         IndicadorVersion } from "../ui.js";
 import { usePrivado, privadosDe, esSesionPrivada, BotonVerPrivado } from "../privado.js";
 import { Clima } from "../clima.js";
 
@@ -424,9 +425,14 @@ export function Home() {
                 <span>${hoy.toLocaleDateString(s.lang === "en" ? "en-GB" : "es-ES", { month: "short" })}</span>
               </span>
             </span>
+            <${IndicadorVersion} lang=${s.lang} />
             <div role="button" tabindex="0" onClick=${() => setState({ theme: dark ? "light" : "dark", themePref: dark ? "light" : "dark" })}
                  style="width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:var(--color-surface)">
               ${dark ? "☾" : "☀"}
+            </div>
+            <div role="button" tabindex="0" onClick=${() => go("settings")}
+                 style="width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:var(--color-surface)">
+              ⚙
             </div>
           </div>
 

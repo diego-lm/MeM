@@ -104,6 +104,8 @@ El ícono de MeM vive en la bandeja del sistema (junto al reloj):
 - **Reiniciar** — mata y vuelve a levantar el servidor (útil tras `git pull` o cambiar `config.toml` a mano).
 - **Salir** — apaga todo.
 
+Si el código en disco quedó más nuevo que el servidor corriendo (por ejemplo tras un `git pull` sin reiniciar), el ícono se marca con un punto rojo. Se revisa cada 5 minutos; **Reiniciar** lo saca.
+
 Si el ícono no está, doble clic en `MeM.bat` lo vuelve a levantar (un mutex evita tener dos corriendo a la vez).
 
 ### La app
@@ -119,13 +121,17 @@ Si el ícono no está, doble clic en `MeM.bat` lo vuelve a levantar (un mutex ev
   | **mindmap** | nodos y relaciones entre temas y memorias |
   | **timeline** | los hechos de un tema en orden cronológico |
 
-- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI.
+- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI. Se llega también con el ícono `⚙` de Home, al lado del de tema claro/oscuro.
+
+Home muestra la versión (`vN`) al lado de ese mismo ícono. Si el servidor corriendo quedó atrás del código en disco, en vez del número aparece un botón de actualizar (el mismo reinicio remoto de Ajustes › Procesamiento).
 
 ### Proyectos y privado
 
 El selector de proyecto (chip del costado en compu, última pestaña en el celular) tiene tres zonas: **Todo** (la biblioteca compartida: lo público de todos los proyectos), la lista de tus proyectos (los privados marcados con `⚿`), y **✎ Gestionar** para crear, renombrar, unir, borrar o marcar un proyecto como privado.
 
 Un proyecto ordena; uno **privado** además encierra: todo lo suyo (sesiones, memorias, capturas, medios) solo se ve parado en él. Marcar un proyecto como privado o público cambia la visibilidad de todo lo suyo al instante — no hay nada que migrar a mano. En el celular, lo privado queda tapado hasta tocar "Ver privado" y verificar con huella/cara/PIN; en compu se ve siempre, marcado en rojo.
+
+Parado en un proyecto, la pantalla **Memory** solo lista lo de ese proyecto (no lo público de los demás mezclado); parado en **Todo**, lista lo público de todos.
 
 Una memoria o sesión vive en un solo proyecto. Para "compartir" algo que está en un proyecto privado, se la mueve a **Todo**: tocar el chip **Proyecto: …** de la ficha (o el de la sesión) abre "Mover a…", el mismo mecanismo en los dos casos.
 

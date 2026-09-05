@@ -3,20 +3,24 @@
 # que cerrar por accidente — reemplaza a mem_tray.ps1, cuyo powershell.exe de
 # consola quedaba visible/oculto y al cerrarlo se llevaba el icono.
 import ctypes
+import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 import pystray
-from PIL import Image
+from PIL import Image, ImageDraw
 
 REPO = Path(__file__).resolve().parents[1]
 PY = REPO / ".venv" / "Scripts" / "python.exe"
 ICONO = REPO / "mem" / "static" / "assets" / "favicon.ico"
+VERSION_JS = REPO / "mem" / "static" / "js" / "version.js"
 LOG = REPO / "mem_tray.log"
 PUERTO = 8765
 URL = f"http://localhost:{PUERTO}"
@@ -96,7 +100,52 @@ def reiniciar(icono, _):
             break
         time.sleep(0.15)
     arrancar()
+    icono.icon = ICONO_BASE
     icono.notify("Servidor reiniciado", "MeM")
+
+
+def version_disco():
+    """`n:` de version.js — el mismo regex que usa mem/api.py para VERSION."""
+    try:
+        m = re.search(r"n:\s*(\d+)", VERSION_JS.read_text(encoding="utf-8"))
+        return int(m.group(1)) if m else None
+    except OSError:
+        return None
+
+
+def version_server():
+    try:
+        with urllib.request.urlopen(f"{URL}/health", timeout=2) as r:
+            return json.load(r).get("version")
+    except Exception:
+        return None
+
+
+def con_luz(base):
+    """Compone un puntito de alerta arriba a la derecha del ícono base."""
+    img = base.convert("RGBA").copy()
+    w, h = img.size
+    r = w // 3
+    d = ImageDraw.Draw(img)
+    d.ellipse((w - r, 0, w, r), fill=(230, 70, 40, 255), outline=(255, 255, 255, 255), width=max(1, w // 24))
+    return img
+
+
+ICONO_BASE = Image.open(ICONO)
+ICONO_LUZ = con_luz(ICONO_BASE)
+
+
+def vigilar_actualizacion():
+    # ponytail: poll simple cada 5 min — no hace falta websocket para un puntito.
+    # Compara el proceso VIVO (server) contra el código en disco: si difieren,
+    # el .js ya cambió pero el Python del arranque sigue siendo el viejo
+    # (mismo chequeo que Ajustes, acá reflejado en el ícono de bandeja).
+    while True:
+        srv = version_server()
+        disco = version_disco()
+        if srv is not None and disco is not None:
+            tray.icon = ICONO_LUZ if srv != disco else ICONO_BASE
+        time.sleep(300)
 
 
 def vigilar():
@@ -117,10 +166,11 @@ def salir(icono, _):
     icono.stop()
 
 
-tray = pystray.Icon("MeM", Image.open(ICONO), "MeM", pystray.Menu(
+tray = pystray.Icon("MeM", ICONO_BASE, "MeM", pystray.Menu(
     pystray.MenuItem("Abrir MeM", abrir, default=True),  # default = clic izquierdo
     pystray.MenuItem("Reiniciar", reiniciar),
     pystray.MenuItem("Salir", salir)))
 arrancar()
 threading.Thread(target=vigilar, daemon=True).start()
+threading.Thread(target=vigilar_actualizacion, daemon=True).start()
 tray.run()

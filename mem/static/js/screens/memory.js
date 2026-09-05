@@ -358,10 +358,14 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // memorias, el árbol de temas (con sus contadores) y el propio inbox. El
   // primer render abre el grupo inicial; las recargas posteriores NO lo tocan,
   // que si no cada memoria procesada te devolvería al primer tema.
+  // parado en un proyecto: solo lo suyo (pedido 2026-09-05, más estricto que el
+  // X-Proyecto de por sí — ese deja ver lo público de los demás también). En
+  // Todo, sin filtro: lo que X-Proyecto ya acota (solo público).
+  const subjectProy = s.proyecto ? `&subject=${encodeURIComponent(`Proyectos/${s.proyecto}`)}` : "";
   function cargarMemorias(primera = false) {
     // sin catch, un server caído dejaba el árbol y su contador en "…" para siempre
     get("/memory/tree").then((t) => { setArbol(t); if (primera) setAbierto(t[0]?.nombre ?? null); }).catch(() => setArbol([]));
-    get("/memory/search").then(setTodas).catch(() => setTodas([]));
+    get(`/memory/search${subjectProy ? "?" + subjectProy.slice(1) : ""}`).then(setTodas).catch(() => setTodas([]));
     get("/inbox").then(setInboxItems).catch(() => {});
   }
 
@@ -373,19 +377,16 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     // el procesador de fondo avisa cada vez que termina una memoria: con Memory
     // abierta la lista y el contador se ponen al día solos (pedido 2026-08-08)
     return onMemoriasCambian(() => cargarMemorias());
-  }, []);
+  }, [s.proyecto]);
 
   // omnibox: memorias por el server (búsqueda híbrida: substring + BM25 +
   // embeddings, orden por relevancia); inbox y sesiones acá mismo (las listas
   // ya están cargadas, sin acentos)
   const q = norm(query.trim());
-  // sin filtro de proyecto aparte: el server ya acota por X-Proyecto (parado en
-  // uno se ve lo suyo + lo público de los demás; en Todo, solo lo público) —
-  // pedirlo de nuevo acá era la misma redundancia que en Home (pedido 2026-09-05).
   useEffect(() => {
     if (!q) { setResultados(null); return; }
     const timer = setTimeout(() => {
-      get(`/memory/search?texto=${encodeURIComponent(query.trim())}&orden=relevancia`)
+      get(`/memory/search?texto=${encodeURIComponent(query.trim())}&orden=relevancia${subjectProy}`)
         .then(setResultados).catch(() => setResultados([]));
     }, 250);
     return () => clearTimeout(timer);
