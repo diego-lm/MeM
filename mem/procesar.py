@@ -8,6 +8,7 @@ clasificación automática.
 """
 import json
 import re
+import tempfile
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
@@ -16,7 +17,7 @@ import frontmatter
 
 from . import agentes
 from . import llm as llm_mod
-from . import lint, media, memoria, sintesis
+from . import lint, media, memoria, sintesis, youtube
 
 RX_URL = re.compile(r"https?://[^\s<>\"'\)\]]+")
 MAX_ENLACES = 3          # ponytail: tope de fetches por captura; subir si aparecen capturas con más links útiles
@@ -184,14 +185,32 @@ def procesar_item(cfg: dict, p: Path) -> dict:
 
     enlaces = _enlaces(post, meta)
     for url in enlaces:
-        pagina = _leer_url(url)
+        # la página de un video de YouTube no dice nada del video: se baja y se mira
+        pagina = "" if youtube.es_youtube(url) else _leer_url(url)
         if pagina:
             partes.append(f"Contenido real de la página ({url}):\n{pagina}")
 
     adj = meta.get("adjunto", "")
     contenido_adj, faltante, derivado = media.extraer(ag, root, adj)
+    fuente = adj
+    yt = "" if adj else next((u for u in enlaces if youtube.es_youtube(u)), "")
+    if yt:
+        # el video se mira y se tira: lo que queda en la memoria es esta línea de
+        # tiempo (que es lo que se busca) y el link (que es lo que se vuelve a ver)
+        fuente = yt
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                video, ficha = youtube.bajar(yt, Path(tmp))
+                partes.append(ficha)
+                contenido_adj, falta_yt = media.describir_video(ag, video)
+                derivado = True
+                faltante = f"{yt}: {falta_yt}" if falta_yt else ""
+            except Exception as e:
+                faltante = str(e)[:300]
     if contenido_adj:
-        partes.append(f"Contenido del adjunto ({adj}):\n{contenido_adj}")
+        # al prompt va condensado (una hora de video no entra en un pedido), al
+        # cuerpo de la entrada va entero: son dos destinos, no el mismo texto
+        partes.append(f"Contenido del adjunto ({fuente}):\n{media.condensar(ag, contenido_adj)}")
         if derivado:
             partes.append("Ese bloque es la ÚNICA versión en texto de un adjunto que nadie más puede "
                           "leer (imagen/audio/video/PDF): úsalo entero para titular, sintetizar y categorizar.")
@@ -239,10 +258,7 @@ def procesar_item(cfg: dict, p: Path) -> dict:
     resultado = memoria.guardar_entrada(root, titulo, sintesis, subjects, origen="inbox",
                                         tags=tags, adjunto=adj, meta=extra, slug=slug,
                                         transcripcion=contenido_adj if derivado else "",
-                                        reemplazar=reproceso,
-                                        # el item ya venía marcado (capturado desde un
-                                        # proyecto privado): la memoria nace igual
-                                        privada=True if meta.get("privada") else None)
+                                        reemplazar=reproceso)
     m = RX_RESULTADO.match(resultado)
     entrada_path = m.group(1) if m else resultado
     # se fija aparte (y no vía meta=) porque hay que poder LIMPIARLO: si este pase

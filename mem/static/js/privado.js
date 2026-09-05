@@ -71,31 +71,29 @@ export function usePrivado() {
 }
 
 export const privadosDe = (proyectos) =>
-  new Set((proyectos || []).filter((p) => p.ambito === "privado").map((p) => p.nombre));
-
-// ámbito de una sesión/memoria vía su proyecto — para el icono de FilaSes/FilaSesion
-export const ambitoDe = (proyectos, nombreProyecto) =>
-  (proyectos || []).find((p) => p.nombre === nombreProyecto)?.ambito || "personal";
+  new Set((proyectos || []).filter((p) => p.privado).map((p) => p.nombre));
 
 export const esSesionPrivada = (ses, privs) => privs.has(String(ses?.proyecto || ""));
 
-// Los proyectos de una memoria (o de un item del inbox, o de un medio): el campo
-// `proyecto` si lo trae, y todo `Proyectos/<n>` de sus subjects.
+// El proyecto de una memoria (o de un item del inbox, o de un medio): el campo
+// `proyecto` si lo trae, si no el primer `Proyectos/<n>` de sus subjects — una
+// memoria vive en un solo proyecto.
 const RX_PROY = /^Proyectos\/([^/]+)/;
-export const proyectosDe = (r) => [
-  ...(r?.proyecto ? [String(r.proyecto)] : []),
-  ...(r?.subjects || []).map((s) => RX_PROY.exec(String(s))?.[1]).filter(Boolean),
-];
+export const proyectoDe = (r) =>
+  r?.proyecto ? String(r.proyecto) : (r?.subjects || []).map((s) => RX_PROY.exec(String(s))?.[1]).find(Boolean) || "";
 
-// Una memoria es privada porque LO DICE ELLA —`privada` es un campo suyo, que el
-// server siembra al crearla si nació en un proyecto privado y que la casilla de la
-// ficha cambia después (pedido 2026-08-08)— O porque HOY cuelga de un proyecto
-// privado, igual que una sesión (pedido 2026-08-23). El campo solo no alcanzaba:
-// un proyecto que pasa a privado, o una memoria que se muda a uno, quedaban a la
-// vista en el celular. Vuelve a costar esperar /projects, y por eso el candado
-// oculta todo hasta que la lista llegue — igual que ya hacía con las sesiones.
-export const esMemoriaPrivada = (r, privs) =>
-  !!r?.privada || proyectosDe(r).some((p) => privs?.has(p));
+// Mover una memoria de proyecto: saca el `Proyectos/<n>` que tuviera (una
+// memoria vive en uno solo) y antepone el nuevo, si hay — a "" es Todo.
+export const conProyecto = (subjects, nuevo) => {
+  const resto = (subjects || []).filter((x) => !RX_PROY.test(String(x)));
+  return nuevo ? [`Proyectos/${nuevo}`, ...resto] : resto;
+};
+
+// Lo privado es del PROYECTO, no de la memoria (pedido 2026-09-05): togglear un
+// proyecto cambia al instante la visibilidad de todo lo suyo, sin campo propio
+// que migrar. El candado oculta todo hasta que /projects llega, igual que con
+// las sesiones — sin eso, un proyecto recién pasado a privado se vería igual.
+export const esMemoriaPrivada = (r, privs) => !!privs?.has(proyectoDe(r));
 
 /** Botón "Ver": lo único que delata que hay contenido privado oculto. */
 export function BotonVerPrivado({ lang }) {

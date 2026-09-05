@@ -5,9 +5,8 @@ import { useStore, go } from "../state.js";
 import { dict } from "../i18n.js";
 import { get, patch, post } from "../api.js";
 import { AddChip, Adjunto, BotonCompartir, ScreenHead, Sheet, TITULO_SEC,
-         useProyectos, proyectosListos } from "../ui.js";
-import { usePrivado, privadosDe, esMemoriaPrivada, PantallaPrivada } from "../privado.js";
-import { CasillaPrivada } from "../vistazo.js";
+         useProyectos, proyectosListos, ChipMenu, itemsDeProyectos } from "../ui.js";
+import { usePrivado, privadosDe, esMemoriaPrivada, PantallaPrivada, proyectoDe, conProyecto } from "../privado.js";
 import { Markdown } from "../md.js";
 
 // Lo que el modelo sacó del adjunto (lo que se ve en la foto o el video, lo que
@@ -51,7 +50,8 @@ export function Entry() {
   const [ver, setVer] = useState(null);   // la que se está mirando en el sheet
   const [detalles, setDetalles] = useState(false);   // lo extraído del adjunto, plegado
   const { oculto } = usePrivado();
-  const privs = privadosDe(useProyectos());
+  const proyectos = useProyectos();
+  const privs = privadosDe(proyectos);
 
   useEffect(() => {
     setE(null); setErr(""); setVers([]); setVer(null); setDetalles(false);
@@ -103,10 +103,10 @@ export function Entry() {
     </div>`;
   if (!e) return html`<div style="flex:1"></div>`;
 
-  // memoria privada: en el celular sin verificar no se muestra nada. Lo dice su
-  // campo `privada` o el proyecto del que cuelga (pedido 2026-08-23), así que
-  // hasta que /projects conteste la ficha queda tapada — abrirla por link es
-  // justo el camino por el que se colaba.
+  // memoria privada: en el celular sin verificar no se muestra nada. Lo dice
+  // el proyecto del que cuelga (pedido 2026-09-05), así que hasta que /projects
+  // conteste la ficha queda tapada — abrirla por link es justo el camino por
+  // el que se colaba.
   const memPrivada = esMemoriaPrivada(e, privs);
   if (oculto && (!proyectosListos() || memPrivada)) return html`
     <div class="mem-screen" style="flex:1;display:flex;flex-direction:column">
@@ -137,13 +137,11 @@ export function Entry() {
         <h3 style="margin:0 0 10px;font-family:var(--font-heading);font-size:25px;line-height:1.14">${e.titulo}</h3>
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);margin-bottom:14px">
           ${meta.map((x) => html`<span>${x}</span>`)}
-          <!-- la casilla, no un cartel: lo privado ahora se prende y se apaga acá
-               (pedido 2026-08-08). Para llegar hasta este punto en el celu ya
-               hubo que pasar el candado, así que destildar no pide nada más. -->
-          <!-- la casilla es el campo PROPIO de la memoria, no el derivado: en un
-               proyecto privado memPrivada ya es true y destildar no apagaba nada -->
-          <${CasillaPrivada} lang=${s.lang} on=${!!e.privada}
-                             onToggle=${() => guardar({ privada: !e.privada })} />
+          <!-- proyecto de la memoria: tocarlo abre "Mover a…" — mover un privado
+               a Todo es la forma de compartirla (pedido 2026-09-05) -->
+          <${ChipMenu} etiqueta=${`${memPrivada ? "⚿" : "◈"} ${proyectoDe(e) || L.tProjAll}`}
+                       items=${itemsDeProyectos(proyectos, proyectoDe(e), [{ id: "", label: L.tProjAll }], s.lang)}
+                       onPick=${(n) => guardar({ subjects: conProyecto(e.subjects, n) })} />
         </div>
         ${e.sesion && html`
           <!-- dónde nació esta memoria (frontmatter sesion): un toque y estás en esa conversación -->

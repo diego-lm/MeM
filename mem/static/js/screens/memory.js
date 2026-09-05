@@ -6,10 +6,9 @@ import { html, useState, useEffect, useMemo } from "../../vendor/preact-htm.js";
 import { useStore, setState, go } from "../state.js";
 import { dict, fechaRelativa } from "../i18n.js";
 import { get, post } from "../api.js";
-import { ScreenHead, useProyectos, proyectosListos, AMBITO_COLOR, IconoAmbito, ChipMenu, norm, TITULO_SEC, onMemoriasCambian,
+import { ScreenHead, useProyectos, proyectosListos, ChipMenu, norm, TITULO_SEC, onMemoriasCambian,
          IMG_EXT, VID_EXT, AUD_EXT } from "../ui.js";
-import { ProyectoActivo, itemsDeProyectos } from "../proyectos.js";
-import { usePrivado, privadosDe, ambitoDe, esSesionPrivada, esMemoriaPrivada, BotonVerPrivado } from "../privado.js";
+import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, BotonVerPrivado } from "../privado.js";
 import { Vistazo } from "../vistazo.js";
 import { GraphView } from "../vis/grafo.js";
 import { SemanticMap } from "../vis/scatter.js";
@@ -71,7 +70,7 @@ function Ficha({ r, onOpen, L, lang, onReprocesar, reprocesando, privada, selecc
              perfilado y con su ◈ en vez de escribir "Proyectos/Yachay" como
              una categoría cualquiera (pedido 2026-08-12) -->
         ${(r.subjects || []).map((x) => (String(x).startsWith("Proyectos/") ? html`
-          <span style="font-family:var(--font-mono);font-size:9.5px;padding:2px 8px;border-radius:var(--radius-md);border:1px solid color-mix(in srgb,var(--color-accent) 55%,transparent);color:var(--color-accent-700)">◈ ${String(x).slice(10)}</span>` : html`
+          <span style="font-family:var(--font-mono);font-size:9.5px;padding:2px 8px;border-radius:var(--radius-md);border:1px solid color-mix(in srgb,var(--color-accent) 55%,transparent);color:var(--color-accent-700)">${privada ? "⚿" : "◈"} ${String(x).slice(10)}</span>` : html`
           <span style="font-family:var(--font-mono);font-size:9.5px;padding:2px 8px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-accent) 16%,transparent);color:var(--color-accent-700)">${x}</span>`))}
         ${(r.tags || []).map((x) => html`
           <span style="font-family:var(--font-mono);font-size:9.5px;padding:2px 8px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-accent-2) 20%,transparent);color:var(--color-accent-2-700)">${x}</span>`)}
@@ -118,21 +117,18 @@ const TIPO_MEDIA_EXT = { imagen: IMG_EXT, video: VID_EXT, audio: AUD_EXT };
  *  server ya mezcla las dos). "Sesión abierta" solo aparece si hay una — Memory
  *  no tiene sesión propia. */
 function MediaTab({ lang, sesionActiva, proyecto, elegidos, onToggle, oculta, L }) {
-  // con un proyecto activo la galería arranca dentro de él (pedido 2026-08-12);
-  // el alcance ya existía y su etiqueta "Este proyecto" estaba en i18n sin usar.
-  const [filtro, setFiltro] = useState({ ...FILTRO_MEDIA_DEFAULT, alcance: proyecto ? "proyecto" : "todas" });
+  const [filtro, setFiltro] = useState(FILTRO_MEDIA_DEFAULT);
   const [items, setItems] = useState(null);
   const campo = (k) => (v) => setFiltro((p) => ({ ...p, [k]: v }));
-  const opciones = { todas: L.mediaAlcance.todas,
-                     ...(proyecto ? { proyecto: L.mediaAlcance.proyecto } : {}),
-                     ...(sesionActiva ? { sesion: L.mediaAlcance.sesion } : {}) };
+  const opciones = { todas: L.mediaAlcance.todas, ...(sesionActiva ? { sesion: L.mediaAlcance.sesion } : {}) };
 
   useEffect(() => {
     const qs = new URLSearchParams({ texto: filtro.texto, desde: filtro.desde, hasta: filtro.hasta });
     if (filtro.alcance === "sesion" && sesionActiva) qs.set("sesion", sesionActiva.id);
-    // ponytail: solo alcance positivo. /media no sabe decir "las que NO tienen
-    // proyecto" — sin proyecto activo el alcance es Todas, que es lo honesto.
-    if (filtro.alcance === "proyecto" && proyecto) qs.set("subject", `Proyectos/${proyecto}`);
+    // "todas" ya no manda subject=Proyectos/<n>: el server acota solo con la
+    // cabecera X-Proyecto (parado en un proyecto ve lo suyo + lo público de los
+    // demás; en Todo, solo lo público) — pedirlo de nuevo acá era filtrar dos
+    // veces por lo mismo (pedido 2026-09-05).
     setItems(null);
     get(`/media?${qs}`).then(setItems).catch(() => setItems([]));
   }, [sesionActiva?.id, proyecto, filtro.alcance, filtro.texto, filtro.desde, filtro.hasta]);
@@ -238,12 +234,12 @@ function FilaInbox({ it, L, lang, onOpen }) {
       <span style="font-family:var(--font-mono);font-size:9.5px;opacity:.5;flex-shrink:0">${fechaRelativa(it.capturado, lang)}</span>
     </div>`;
 }
-function FilaSesion({ ses, lang, onOpen, privada, ambito }) {
+function FilaSesion({ ses, lang, onOpen, privada }) {
   return html`
     <div role="button" tabindex="0" onClick=${onOpen} class=${privada ? "mem-privada" : ""}
          style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:var(--radius-md);border:1px ${ses.estado === "archivada" ? "dashed" : "solid"} var(--color-divider);background:var(--color-surface);margin-bottom:7px;cursor:pointer;opacity:${ses.estado === "archivada" ? 0.75 : 1}">
       <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-accent-700);flex-shrink:0">${ses.estado === "archivada" ? "⌖" : "▮"}</span>
-      <span style="flex-shrink:0;color:${AMBITO_COLOR[ambito] || AMBITO_COLOR.personal}"><${IconoAmbito} ambito=${ambito} size=${11} /></span>
+      ${privada && html`<span style="flex-shrink:0;font-size:11px">⚿</span>`}
       <span style="flex:1;min-width:0">
         <span style="display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ses.titulo || ses.id}</span>
         <span style="display:block;font-family:var(--font-mono);font-size:9.5px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(ses.subjects || []).join(" · ") || ses.modo}</span>
@@ -334,9 +330,6 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const [capaCaptura, setCapaCaptura] = useState(true);  // mapa: capa "desde dónde lo anoté"
   const [geo, setGeo] = useState(null);              // /memory/map (se pide al abrir el mapa)
   const [resultados, setResultados] = useState(null); // memorias que matchean la query
-  // la búsqueda arranca DENTRO del proyecto activo (pedido 2026-08-12).
-  // "*" = todos · "" = las que no tienen proyecto.
-  const [proyFiltro, setProyFiltro] = useState(() => String(s.proyecto || ""));
   const [preview, setPreview] = useState(null);       // slug abierto en el vistazo
   const [reproc, setReproc] = useState(null);         // null | "todas" | slug en reproceso
   // picker de "llevar esto a una sesión" (pedido 2026-08-10): medios Y memorias
@@ -386,28 +379,24 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // embeddings, orden por relevancia); inbox y sesiones acá mismo (las listas
   // ya están cargadas, sin acentos)
   const q = norm(query.trim());
-  // el proyecto del filtro, como pedazo de query: un proyecto ES un subject.
-  // `sin_proyecto` es lo que subject= no puede decir (lo que no cuelga de ninguno).
-  const qsProy = proyFiltro === "*" ? ""
-    : proyFiltro ? `&subject=${encodeURIComponent(`Proyectos/${proyFiltro}`)}` : "&sin_proyecto=1";
+  // sin filtro de proyecto aparte: el server ya acota por X-Proyecto (parado en
+  // uno se ve lo suyo + lo público de los demás; en Todo, solo lo público) —
+  // pedirlo de nuevo acá era la misma redundancia que en Home (pedido 2026-09-05).
   useEffect(() => {
     if (!q) { setResultados(null); return; }
     const timer = setTimeout(() => {
-      get(`/memory/search?texto=${encodeURIComponent(query.trim())}&orden=relevancia${qsProy}`)
+      get(`/memory/search?texto=${encodeURIComponent(query.trim())}&orden=relevancia`)
         .then(setResultados).catch(() => setResultados([]));
     }, 250);
     return () => clearTimeout(timer);
-  }, [query, proyFiltro]);
+  }, [query, s.proyecto]);
   // inbox y sesiones se filtran acá: sus listas ya están en memoria
-  const deProy = (subjects, proy) => proyFiltro === "*"
-    || (proyFiltro ? (proy === proyFiltro || (subjects || []).some((x) => String(x) === `Proyectos/${proyFiltro}` || String(x).startsWith(`Proyectos/${proyFiltro}/`)))
-                   : !proy && !(subjects || []).some((x) => String(x).startsWith("Proyectos/")));
   const inboxHits = useMemo(() => !q ? [] : inboxItems.filter((it) =>
     norm([it.texto, it.tipo, it.contexto_usuario, (it.tags || []).join(" "), (it.subjects || []).join(" ")].join(" ")).includes(q)
-    && !ocultarMem(it) && deProy(it.subjects, it.proyecto)), [q, inboxItems, oculto, proyectos, proyFiltro]);
+    && !ocultarMem(it)), [q, inboxItems, oculto, proyectos]);
   const sesionHits = useMemo(() => !q ? [] : sesiones.filter((x) =>
-    norm([x.titulo, x.resumen, (x.subjects || []).join(" ")].join(" ")).includes(q) && !ocultarSes(x)
-    && deProy(x.subjects, x.proyecto)), [q, sesiones, oculto, proyectos, proyFiltro]);
+    norm([x.titulo, x.resumen, (x.subjects || []).join(" ")].join(" ")).includes(q) && !ocultarSes(x)),
+    [q, sesiones, oculto, proyectos]);
 
   // memorias con material que el LLM no pudo leer (spec: se ven en rojo y se
   // reprocesan cuando cambias de modelo). Solo salen en su propia vista: se
@@ -474,10 +463,10 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
 
   // vista Proyectos: un dropdown elige el proyecto y ESO es la lista (más rápido
   // que la grilla de chips + drill de antes — pedido 2026-08-05)
-  const proyectosVis = proyectos.filter((p) => !oculto || p.ambito !== "privado");
+  const proyectosVis = proyectos.filter((p) => !oculto || !p.privado);
   const proyecto = String(s.proyecto || "");
   const proyectoElegido = vistaReal === V.PROY && subjectClic ? subjectClic.split("/")[1] : "";
-  const proyPriv = (n) => proyectos.some((p) => p.nombre === n && p.ambito === "privado");
+  const proyPriv = (n) => proyectos.some((p) => p.nombre === n && p.privado);
   useEffect(() => {
     if (vistaReal === V.PROY && !subjectClic && proyectosVis.length)
       setSubjectClic(`Proyectos/${proyectosVis[0].nombre}`);
@@ -506,7 +495,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     </div>`;
   // hay contenido privado oculto: un solo botón lo revela (verificación mediante)
   const hayPrivado = oculto && ((todas || []).some(memPriv)
-    || (proyectosListos() && (sesiones.some(sesPriv) || proyectos.some((p) => p.ambito === "privado"))));
+    || (proyectosListos() && (sesiones.some(sesPriv) || proyectos.some((p) => p.privado))));
   // el candado se cerró con el vistazo de una memoria privada abierto: no se muestra
   const previewBloqueado = preview && oculto && (todas || []).some((r) => r.slug === preview && memPriv(r));
   // Página de síntesis del tema: la escribe el LLM una vez y de ahí en más el
@@ -539,13 +528,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
 
   return html`
     <div class="mem-screen ancha" style="position:relative;flex:1;display:flex;flex-direction:column;animation:scIn .42s cubic-bezier(.22,1,.36,1);min-height:0">
-      <!-- el proyecto activo, en el MISMO sitio que en Home y en la sesión: arriba
-           a la derecha (pedido 2026-08-12). Cambiarlo acá cambia también el filtro
-           de la búsqueda de abajo — son la misma idea. -->
-      <${ScreenHead} titulo="Memory" sub=${memorySub} onBack=${onClose || (() => go("home"))}>
-        <${ProyectoActivo} valor=${proyecto} lang=${s.lang} estilo="margin-left:auto"
-                           onPick=${(n) => { setState({ proyecto: n }); setProyFiltro(n); }} />
-      <//>
+      <${ScreenHead} titulo="Memory" sub=${memorySub} onBack=${onClose || (() => go("home"))} />
       <div style="padding:4px 20px 12px">
         <div style="height:44px;border-radius:var(--radius-md);background:var(--color-surface);border:1px solid var(--color-divider);display:flex;align-items:center;padding:0 12px;gap:9px;box-shadow:var(--shadow-sm)">
           <span style="font-family:var(--font-mono);opacity:.5;font-size:13px">⌕</span>
@@ -580,19 +563,9 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
             <${ChipMenu} etiqueta=${`◈ ${proyectoElegido || "…"}`} on=${!!proyectoElegido} ancho=${250}
                          clase=${proyPriv(proyectoElegido) ? "mem-privada" : ""}
                          items=${proyectosVis.map((p) => ({ id: p.nombre, label: p.nombre,
-                           glyph: html`<span style="color:${AMBITO_COLOR[p.ambito] || AMBITO_COLOR.personal}"><${IconoAmbito} ambito=${p.ambito} /></span>`,
-                           sub: L.ambitos[p.ambito] || p.ambito, on: p.nombre === proyectoElegido }))}
+                           glyph: p.privado ? html`<span class="mem-privada">⚿</span>` : "◈",
+                           sub: p.privado ? L.tPrivado : "", on: p.nombre === proyectoElegido }))}
                          onPick=${(n) => setSubjectClic(`Proyectos/${n}`)} />`}
-          <!-- buscando: se puede salir del proyecto activo sin cambiarlo (Todos, o
-               justo lo que no tiene proyecto). Sin query no aparece: las vistas de
-               exploración son eso, explorar TODO — Proyectos ya es una de ellas. -->
-          ${!!q && html`
-            <${ChipMenu} etiqueta=${`◈ ${proyFiltro === "*" ? L.tProjAll : (proyFiltro || L.tNoProject)}`}
-                         on=${proyFiltro !== "*"} ancho=${240}
-                         clase=${proyPriv(proyFiltro) ? "mem-privada" : ""}
-                         items=${itemsDeProyectos(proyectosVis, proyFiltro,
-                           [{ id: "*", label: L.tProjAll }, { id: "", label: L.tNoProject }], s.lang)}
-                         onPick=${setProyFiltro} />`}
           <${ChipMenu} etiqueta=${tipos.length ? tipos.map((t) => L.memTypes[t]).join(", ") : L.tAll}
                        on=${!!tipos.length} multi=${true} ancho=${220}
                        items=${[{ id: "", label: L.tAll, on: !tipos.length },
@@ -618,7 +591,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
           ${!!sesionHits.length && html`
             <div style="${TITULO_SEC};margin:14px 0 8px">${L.tSessionsWord} · ${sesionHits.length}</div>
             ${sesionHits.map((x) => html`<${FilaSesion} key=${x.id} ses=${x} lang=${s.lang} privada=${sesPriv(x)}
-                                                         ambito=${ambitoDe(proyectos, x.proyecto)} onOpen=${() => go("chat", x.id)} />`)}`}
+                                                         onOpen=${() => go("chat", x.id)} />`)}`}
         ` : html`
           <div role="button" tabindex="0" onClick=${inboxN ? () => go("inbox") : null}
                style="position:relative;border-radius:var(--radius-md);background:var(--color-surface);border:1px solid var(--color-divider);padding:13px 14px;display:flex;gap:12px;align-items:center;cursor:${inboxN ? "pointer" : "default"};opacity:${inboxN ? 1 : 0.45};box-shadow:var(--shadow-sm);margin-bottom:14px">
@@ -744,8 +717,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
             ${!proyectosVis.length && html`<div style="opacity:.5;font-size:13px">${L.tNoProjects}</div>`}
             ${!!proyectoElegido && html`
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                <span style="color:${AMBITO_COLOR[(proyectos.find((p) => p.nombre === proyectoElegido) || {}).ambito] || AMBITO_COLOR.personal}">
-                  <${IconoAmbito} ambito=${(proyectos.find((p) => p.nombre === proyectoElegido) || {}).ambito} /></span>
+                ${proyPriv(proyectoElegido) && html`<span class="mem-privada">⚿</span>`}
                 <span style="font-size:12px;opacity:.7">${proyectoElegido} · ${porSubject.length}</span>
               </div>
               ${!porSubject.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}

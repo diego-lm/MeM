@@ -13,19 +13,36 @@ def _lista(s: str) -> list[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
+def _desde(root, proyecto: str, clave: str) -> str | None:
+    """Como mcp._desde: sin --proyecto ve solo lo público; con uno privado exige
+    --clave (la que se genera en Gestionar). Sale del proceso si no valida."""
+    proyecto = (proyecto or "").strip()
+    if not proyecto:
+        return None
+    p = memoria.proyecto_por_nombre(root, proyecto)
+    if not p:
+        sys.exit(f"proyecto desconocido: {proyecto}")
+    if not memoria.clave_valida(root, p["nombre"], clave or ""):
+        sys.exit(f"clave inválida para {p['nombre']}")
+    return p["nombre"]
+
+
 def main():
     ap = argparse.ArgumentParser(prog="mem", description="MeM — memoria persistente + sesiones sobre hamuQ")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ask", help="pregunta única, sin sesión")
     s.add_argument("pregunta"); s.add_argument("--modo", default="chat"); s.add_argument("--subjects", default="")
+    s.add_argument("--proyecto", default=""); s.add_argument("--clave", default="")
     s = sub.add_parser("chat", help="REPL de chat con sesión persistente")
     s.add_argument("--modo", default="chat"); s.add_argument("--sesion")
     s.add_argument("--titulo", default="sesion"); s.add_argument("--subjects", default="")
+    s.add_argument("--proyecto", default=""); s.add_argument("--clave", default="")
     s = sub.add_parser("sessions", help="listar sesiones")
     s.add_argument("--modo")
     s = sub.add_parser("search", help="buscar en los índices")
     s.add_argument("consulta")
+    s.add_argument("--proyecto", default=""); s.add_argument("--clave", default="")
     s = sub.add_parser("archive", help="destilar y archivar una sesión")
     s.add_argument("sesion")
     sub.add_parser("modes", help="listar modos de vista disponibles")
@@ -46,6 +63,7 @@ def main():
     s = sub.add_parser("capture", help="capturar una nota al inbox")
     s.add_argument("texto"); s.add_argument("--tipo", default="nota"); s.add_argument("--contexto", default="")
     s.add_argument("--tags", default=""); s.add_argument("--subjects", default="")
+    s.add_argument("--proyecto", default="")
     s = sub.add_parser("serve", help="levantar API + UI web")
     s.add_argument("--port", type=int)
 
@@ -54,16 +72,17 @@ def main():
     root = cfg["hamuq"]
 
     if a.cmd == "search":
-        print(memoria.buscar(root, a.consulta))
+        print(memoria.buscar(root, a.consulta, proyecto=_desde(root, a.proyecto, a.clave)))
     elif a.cmd == "ask":
         modo = modos.cargar(root, a.modo)
         texto, paginas, tokens = chat.responder(
             cfg, modo, [{"role": "user", "content": a.pregunta}],
             on_event=lambda n, args: print(f"  · {n}({json.dumps(args, ensure_ascii=False)[:100]})"),
-            subjects=_lista(a.subjects))
+            subjects=_lista(a.subjects), proyecto=_desde(root, a.proyecto, a.clave) or "")
         print(f"\n{texto}\n\n[páginas: {', '.join(paginas) or '—'} | tokens entrada: {tokens}]")
     elif a.cmd == "chat":
-        sid = a.sesion or sesiones.crear(root, _lista(a.subjects), a.titulo, a.modo)
+        sid = a.sesion or sesiones.crear(root, _lista(a.subjects), a.titulo, a.modo,
+                                         proyecto=_desde(root, a.proyecto, a.clave) or "")
         print(f"sesión: {sid}  (salir: 'salir' o Ctrl+C)")
         while True:
             try:
@@ -106,7 +125,7 @@ def main():
         print(f"{r['resultado']} ({r['fuentes']} fuentes)")
     elif a.cmd == "capture":
         print("→", memoria.capturar(root, a.texto, a.tipo, a.contexto,
-                                    _lista(a.tags), _lista(a.subjects)))
+                                    _lista(a.tags), _lista(a.subjects), proyecto=a.proyecto))
     elif a.cmd == "process":
         r = procesar.procesar_inbox(cfg)
         print(f"{r['procesadas']} procesadas, {r['errores']} con error")

@@ -21,6 +21,16 @@
     }
   },
 
+  "ffmpeg": {
+    "nombre": "FFmpeg",
+    "winget": "Gyan.FFmpeg",
+    "exe": "ffmpeg",
+    "que_es": {
+      "es": "Lo que MeM usa para LEER un video: le saca los fotogramas y la pista de audio. Sin esto un video adjunto queda pendiente, y los links de YouTube no se pueden procesar.",
+      "en": "What MeM uses to READ a video: it pulls out the frames and the audio track. Without it an attached video stays pending, and YouTube links cannot be processed."
+    }
+  },
+
   "comfyui": {
     "nombre": "ComfyUI",
     "winget": "Comfy.ComfyUI-Desktop",

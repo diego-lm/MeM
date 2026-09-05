@@ -14,20 +14,9 @@ import { html, useState, useEffect } from "../vendor/preact-htm.js";
 import { go } from "./state.js";
 import { dict } from "./i18n.js";
 import { get, patch } from "./api.js";
-import { Sheet, AddChip, Adjunto, TITULO_SEC } from "./ui.js";
+import { Sheet, AddChip, Adjunto, TITULO_SEC, ChipMenu, itemsDeProyectos, useProyectos } from "./ui.js";
+import { proyectoDe, conProyecto, privadosDe } from "./privado.js";
 import { Markdown } from "./md.js";
-
-/** La casilla de privado. Marcar no pide nada; DESmarcar tampoco, porque para
- *  llegar hasta acá en el celu ya hubo que pasar el candado (huella/cara/PIN) —
- *  una memoria privada ni se lista sin verificar. */
-export function CasillaPrivada({ on, onToggle, lang }) {
-  const L = dict(lang);
-  return html`
-    <div role="checkbox" aria-checked=${!!on} tabindex="0" title=${L.tPriv} onClick=${onToggle}
-         style="display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 11px;cursor:pointer;user-select:none;border:1px solid ${on ? "var(--color-accent)" : "var(--color-divider)"};color:${on ? "var(--color-accent-700)" : "var(--text-2)"};font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase">
-      <span style="width:12px;height:12px;flex-shrink:0;border:1.5px solid currentColor;background:${on ? "currentColor" : "transparent"}"></span>
-      ⚿ ${L.ambitos.privado}</div>`;
-}
 
 const GLIFOS = { sesiones: "▮", wikilinks: "⇄", backlinks: "⇠", entradas: "⌗", relacionadas: "≈" };
 
@@ -44,6 +33,8 @@ function FilaConex({ glifo, titulo, extra, onClick }) {
 
 export function Vistazo({ slug, lang, onClose, onIr = null }) {
   const L = dict(lang);
+  const proyectos = useProyectos();
+  const privs = privadosDe(proyectos);
   const [e, setE] = useState(null);
   useEffect(() => {
     setE(null);
@@ -92,8 +83,12 @@ export function Vistazo({ slug, lang, onClose, onIr = null }) {
             ${meta.map((x) => html`<span>${x}</span>`)}
           </div>
           <div style="margin-bottom:12px">
-            <${CasillaPrivada} lang=${lang} on=${!!e.privada}
-                               onToggle=${() => guardar({ privada: !e.privada })} />
+            <!-- proyecto de la memoria: tocarlo abre "Mover a…" (mismo mecanismo
+                 que la sesión) — mover un privado a Todo es la forma de compartirla,
+                 una acción con nombre y no un checkbox con ayuda (pedido 2026-09-05) -->
+            <${ChipMenu} etiqueta=${`${privs.has(proyectoDe(e)) ? "⚿" : "◈"} ${proyectoDe(e) || L.tProjAll}`}
+                         items=${itemsDeProyectos(proyectos, proyectoDe(e), [{ id: "", label: L.tProjAll }], lang)}
+                         onPick=${(n) => guardar({ subjects: conProyecto(e.subjects, n) })} />
           </div>
           ${e.adjunto && html`<${Adjunto} ruta=${e.adjunto} />`}
           <div style="max-height:30vh;overflow:auto;margin-bottom:12px">

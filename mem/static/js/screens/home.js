@@ -10,10 +10,9 @@ import { Markdown } from "../md.js";
 import { CornerBrackets, MicButton, Toast, useDictado, dictadoSoportado,
          useAgentes, agenteDe, BotonAgente, ConfirmarBorradoSesion,
          Camara, camaraSoportada, useProyectos, proyectosListos,
-         AMBITO_COLOR, IconoAmbito, ChipMenu, AccionesAdjunto, norm,
+         AccionesAdjunto, norm,
          useAdjuntos, TiraAdjuntos, archivosDelPortapapeles, Alpaca, BTN_ICONO } from "../ui.js";
-import { ProyectoActivo, itemsDeProyectos } from "../proyectos.js";
-import { usePrivado, privadosDe, ambitoDe, esSesionPrivada, BotonVerPrivado } from "../privado.js";
+import { usePrivado, privadosDe, esSesionPrivada, BotonVerPrivado } from "../privado.js";
 import { Clima } from "../clima.js";
 
 // botón cuadrado de la barra de acciones: 44px = el piso táctil del brief §7
@@ -43,7 +42,7 @@ function escribirBorrador(b) {
 }
 
 // fila de un resultado del buscador de sesiones
-function FilaSes({ ses, modos, lang, theme, L, onOpen, onBorrar, privada, ambito }) {
+function FilaSes({ ses, modos, lang, theme, L, onOpen, onBorrar, privada }) {
   const modoDe = (nombre) => modos.find((m) => m.nombre === nombre) || MODE_FALLBACK[nombre] || MODE_FALLBACK.chat;
   const mo = modoDe(ses.modo);
   const arch = ses.estado === "archivada";
@@ -54,8 +53,7 @@ function FilaSes({ ses, modos, lang, theme, L, onOpen, onBorrar, privada, ambito
     <div role="button" tabindex="0" onClick=${onOpen} class=${privada ? "mem-privada" : ""}
          style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:var(--radius-md);border:1px ${arch ? "dashed" : "solid"} var(--color-divider);background:var(--color-surface);margin-bottom:8px;cursor:pointer;opacity:${arch ? 0.75 : 1}">
       <span style="width:28px;height:28px;border-radius:var(--radius-md);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;${caja(mo)}">${arch ? "⌖" : (mo.glyph || "▮")}</span>
-      <span style="flex-shrink:0;color:${AMBITO_COLOR[ambito] || AMBITO_COLOR.personal}" title=${L.ambitos[ambito] || ambito}>
-        <${IconoAmbito} ambito=${ambito} size=${12} /></span>
+      ${privada && html`<span style="flex-shrink:0;font-size:12px" title=${L.tPriv}>⚿</span>`}
       <span style="flex:1;min-width:0">
         <span style="display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ses.titulo || ses.id}</span>
         <span style="display:block;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ses.modo} · ${ses.turnos || 0} ${L.tTurns}${(ses.subjects || []).length ? ` · ${ses.subjects.join(" · ")}` : ""}</span>
@@ -94,10 +92,6 @@ export function Home() {
   const [archivadas, setArchivadas] = useState([]);
   const [modos, setModos] = useState([]);
   const [porBorrar, setPorBorrar] = useState(null);
-  // el buscador arranca DENTRO del proyecto activo (pedido 2026-08-12): buscar
-  // sesiones es buscar en lo que estás haciendo. "*" = todos, "" = sin proyecto
-  // (antes los dos eran "" y no se podía pedir "las que no tienen proyecto").
-  const [proyFiltro, setProyFiltro] = useState(() => String(s.proyecto || ""));
   const [camara, setCamara] = useState(false);
   const fileRef = useRef(null);
   const camRef = useRef(null);
@@ -120,7 +114,6 @@ export function Home() {
   // — lo privado no sale de su proyecto, ni siquiera pidiendo "Todos".
   const fuera = (ses) => esPriv(ses) && String(ses.proyecto || "") !== proyecto;
   const ocultar = (ses) => (oculto && (!proyectosListos() || esPriv(ses))) || fuera(ses);
-  const proyectosVis = proyectosTodos.filter((p) => !oculto || p.ambito !== "privado");
   // dictar también es "decirle algo al asistente": enciende el ↵ igual que teclear
   const dictado = useDictado(s.voiceLang || (s.lang === "en" ? "en-US" : "es-ES"),
     (t) => { setTexto((p) => (p ? p + " " : "") + t); setManual(true); });
@@ -247,10 +240,10 @@ export function Home() {
   // El proyecto viaja EN la captura y no en la cabecera: la cola es offline y
   // puede vaciarse horas después, ya parado en otro proyecto — lo que vale es
   // dónde se capturó (pedido 2026-08-12).
-  function encolar(payload) {
+  function encolar(payload, avisoProyecto = "") {
     encolarCaptura({ proyecto, ...payload });
     limpiar();
-    setSaved("info");
+    setSaved(avisoProyecto || "info");
     setTimeout(() => setSaved(false), 2400);
   }
 
@@ -281,9 +274,10 @@ export function Home() {
     setState({ agenteTrabajando: agente?.id || null });
     try {
       const r = await post("/capture/triage", { mensajes, lang: s.lang, adjunto, proyecto });
-      // "guardá esto en el proyecto X" dicho al agente cambia el proyecto activo
-      if (r.proyecto && r.proyecto !== proyecto) setState({ proyecto: r.proyecto });
-      if (r.guardar) { encolar(r.payload); }
+      // "guardá esto en el proyecto X" dicho al agente manda la captura ahí SIN
+      // mover a Diego de dónde está parado — antes cambiaba el proyecto activo
+      // en silencio; ahora un toast avisa a dónde fue (pedido 2026-09-05).
+      if (r.guardar) { encolar(r.payload, r.proyecto && r.proyecto !== proyecto ? r.proyecto : ""); }
       else { setConv([...mensajes, { rol: "agente", texto: r.mensaje }]); }
     } catch (e) {
       // el agente no contestó: la captura no se pierde, va al inbox tal cual
@@ -365,19 +359,18 @@ export function Home() {
     get("/sessions?archivadas=1").then(setArchivadas).catch(() => {});
   }
 
-  /** Cambiar de proyecto = mudarse: el buscador se muda con vos, y las sesiones
-   *  se recargan porque el editor pudo renombrarlo, unirlo o borrarlo. */
-  function cambiarProyecto(n) {
-    setState({ proyecto: n });
-    setProyFiltro(n);
+  // el proyecto ahora se elige en el sidebar/tabbar (pedido 2026-08-31): las
+  // sesiones se recargan porque el editor pudo renombrarlo, unirlo o borrarlo
+  // (Home queda montado detrás del sidebar). El buscador ya no filtra por
+  // proyecto aparte: `ocultar` sola decide qué se ve, parado donde se esté
+  // (pedido 2026-09-05 — el proyecto activo ES el filtro, sin un segundo estado).
+  useEffect(() => {
     if (sesiones !== null) recargarSesiones();
-  }
+  }, [s.proyecto]);
 
   const q = norm(busca.trim());
-  // el filtro por proyecto manda sobre búsqueda y recientes ("*" = todos)
-  const deProy = (x) => proyFiltro === "*" || String(x.proyecto || "") === proyFiltro;
   const hits = !q ? [] : [...(sesiones || []), ...archivadas].filter((x) =>
-    norm([x.titulo, x.modo, (x.subjects || []).join(" ")].join(" ")).includes(q) && !ocultar(x) && deProy(x));
+    norm([x.titulo, x.modo, (x.subjects || []).join(" ")].join(" ")).includes(q) && !ocultar(x));
   const hayPrivadas = oculto && proyectosListos() &&
     [...(sesiones || []), ...archivadas].some(esPriv);
 
@@ -385,7 +378,7 @@ export function Home() {
   // (los grupos quedan ordenados por su sesión más reciente, no alfabéticamente)
   const grupos = [];
   if (!q && abierto) {
-    const recientes = [...(sesiones || [])].filter((x) => !ocultar(x) && deProy(x))
+    const recientes = [...(sesiones || [])].filter((x) => !ocultar(x))
       .sort((a, b) => String(b.actualizada || "").localeCompare(String(a.actualizada || "")))
       .slice(0, 15);
     for (const ses of recientes) {
@@ -435,13 +428,6 @@ export function Home() {
                  style="width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:var(--color-surface)">
               ${dark ? "☾" : "☀"}
             </div>
-            <!-- El proyecto activo, arriba a la derecha — el MISMO lugar que en
-                 Memory y en la sesión (pedido 2026-08-12): se lee de un vistazo
-                 dentro de qué estás, sin importar en qué pantalla estés. Un toque
-                 abre el editor (elegir · renombrar · ámbito · unir · borrar).
-                 Va ÚLTIMO en el DOM porque abajo de 880px se lleva su propio
-                 renglón (.mem-home-proy): en el medio empujaría al tema a un tercero. -->
-            <span class="mem-home-proy"><${ProyectoActivo} valor=${proyecto} lang=${s.lang} onPick=${cambiarProyecto} /></span>
           </div>
 
           <div class="mem-home-card" ref=${buscaRef} style="position:relative;z-index:2;flex:1;min-height:0;display:flex;flex-direction:column;gap:9px">
@@ -465,17 +451,6 @@ export function Home() {
 
             ${lista && html`
               <div class="mem-home-res">
-                  <!-- Filtro de proyecto, nada más: renombrar/ámbito/unir/borrar
-                       se fueron al editor del chip de arriba (v87). Arranca en el
-                       proyecto activo y se puede abrir a todos. -->
-                  <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:2px 4px 8px">
-                    <${ChipMenu} etiqueta=${`◈ ${proyFiltro === "*" ? L.tProjAll : (proyFiltro || L.tNoProject)}`}
-                                 on=${proyFiltro !== "*"} ancho=${240} haciaDerecha=${true}
-                                 clase=${privs.has(proyFiltro) ? "mem-privada" : ""}
-                                 items=${itemsDeProyectos(proyectosVis, proyFiltro,
-                                   [{ id: "*", label: L.tProjAll }, { id: "", label: L.tNoProject }], s.lang)}
-                                 onPick=${setProyFiltro} />
-                  </div>
                   ${sesiones === null && html`<div style="opacity:.5;font-size:13px;padding:8px 4px">…</div>`}
                   ${sesiones !== null && buscando && !hits.length && html`
                     <div style="padding:22px 16px;text-align:center;border-radius:var(--radius-md);background:var(--color-bg);border:1px solid var(--color-divider)">
@@ -484,15 +459,13 @@ export function Home() {
                     </div>`}
                   ${buscando && hits.map((ses) => html`
                     <${FilaSes} key=${ses.id} ses=${ses} modos=${modos} lang=${s.lang} theme=${s.theme} L=${L} privada=${esPriv(ses)}
-                                ambito=${ambitoDe(proyectosTodos, ses.proyecto)}
                                 onOpen=${() => abrirSesion(ses.id)} onBorrar=${() => pedirBorrado(ses)} />`)}
                   ${!buscando && grupos.map((g) => html`
                     <div style="display:flex;align-items:center;gap:6px;padding:8px 4px 5px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">
-                      ◈ ${g.nombre || L.tNoProject} <span style="opacity:.6">· ${g.sesiones.length}</span>
+                      ◈ ${g.nombre || L.tProjAll} <span style="opacity:.6">· ${g.sesiones.length}</span>
                     </div>
                     ${g.sesiones.map((ses) => html`
                       <${FilaSes} key=${ses.id} ses=${ses} modos=${modos} lang=${s.lang} theme=${s.theme} L=${L} privada=${esPriv(ses)}
-                                  ambito=${ambitoDe(proyectosTodos, ses.proyecto)}
                                   onOpen=${() => abrirSesion(ses.id)} onBorrar=${() => pedirBorrado(ses)} />`)}`)}
                   ${hayPrivadas && html`
                     <div style="display:flex;justify-content:center;padding:6px 0 10px">
@@ -508,7 +481,7 @@ export function Home() {
               <div role="button" tabindex="0" onClick=${() => go("chat", s.sesionActiva.id)}
                    style="display:flex;align-items:center;gap:9px;height:36px;padding:0 10px 0 12px;border-radius:var(--radius-md);cursor:pointer;background:var(--color-surface);border:1px solid color-mix(in srgb,var(--color-accent) 50%,var(--color-divider));box-shadow:var(--shadow-sm)">
                 <span style="flex-shrink:0;width:7px;height:7px;border-radius:var(--radius-md);background:var(--color-accent);animation:breathe 2.4s ease-in-out infinite"></span>
-                <span style="flex-shrink:0;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">${L.tActiveSession}</span>
+                <span style="flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">${L.tActiveSession} · ${s.sesionActiva.proyecto || L.tProjAll}</span>
                 <span style="flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.sesionActiva.titulo}</span>
                 <!-- el ✕ vive DENTRO de la fila (antes colgaba afuera y le comía 32px
                      de ancho: la línea no alineaba con el chatbox de abajo). Ocupa el
@@ -622,6 +595,6 @@ export function Home() {
         <${Camara} lang=${s.lang} onClose=${() => setCamara(false)}
                    onListo=${(f) => { adjs.agregar([f]); setCamara(false); }} />`}
     </div>
-    ${saved && html`<${Toast}>${L.tSavedToast}<//>`}
+    ${saved && html`<${Toast}>${saved === "info" ? L.tSavedToast : `${L.tTriageProj} ${saved}`}<//>`}
   `;
 }

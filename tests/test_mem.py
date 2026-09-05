@@ -1,12 +1,13 @@
 """Chequeos mínimos del motor sobre una base hamuQ de fixture (nunca la real)."""
 import json
+import os
 import re
 from pathlib import Path
 
 import frontmatter
 import pytest
 
-from mem import agentes, chat, config, lint, media, memoria, modos, procesar, sesiones, triaje
+from mem import agentes, chat, config, lint, media, memoria, modos, procesar, sesiones, triaje, youtube
 
 
 @pytest.fixture
@@ -337,17 +338,47 @@ def test_sincronizar_sesion_inbox_reabre_desde_procesado(root):
 
 
 def test_sincronizar_sesion_inbox_respeta_privacidad_y_fijado(root):
-    memoria.proyecto_guardar(root, "Terapia", "privado")
+    memoria.proyecto_guardar(root, "Terapia", True)
     sid = "2026-08-09_140000_privada"
     memoria.sincronizar_sesion_inbox(root, sid, "[Diego]\nhola", proyecto="Terapia")
     item = memoria.inbox_listar(root)[0]
-    assert item["privada"] is True
+    privs = memoria.privados(root)
+    assert memoria.accesible(item, "Terapia", privs)
+    assert not memoria.accesible(item, "", privs)
     assert item["subjects"] == ["Proyectos/Terapia"]
 
     memoria.inbox_editar(root, f"sesion-{sid}", subjects=["Proyectos/Terapia", "Salud"])  # Diego lo fija a mano
     memoria.sincronizar_sesion_inbox(root, sid, "[Diego]\nhola\n\n[Diego]\nmás", proyecto="Terapia")
     item = memoria.inbox_listar(root)[0]
     assert item["subjects"] == ["Proyectos/Terapia", "Salud"]   # lo fijado no se pisa
+
+
+def test_destilado_hereda_privacidad_del_proyecto(root):
+    """El destilado de una sesión hereda la privacidad de SU proyecto (pedido
+    2026-09-05): sin campo propio que sembrar, así que un proyecto público
+    destila público y uno privado, privado — accesible() lee el proyecto."""
+    memoria.proyecto_guardar(root, "Casa nueva", False)   # público
+    memoria.sincronizar_sesion_inbox(root, "2026-08-31_100000_obra",
+                                     "[Diego]\nel presupuesto subió", proyecto="Casa nueva")
+    pub = next(i for i in memoria.inbox_listar(root) if i["id"] == "sesion-2026-08-31_100000_obra")
+
+    memoria.proyecto_guardar(root, "Terapia", True)   # privado
+    memoria.sincronizar_sesion_inbox(root, "2026-08-31_100100_terapia",
+                                     "[Diego]\nsesión de hoy", proyecto="Terapia")
+    priv = next(i for i in memoria.inbox_listar(root) if i["id"] == "sesion-2026-08-31_100100_terapia")
+
+    privs = memoria.privados(root)
+    assert memoria.accesible(pub, "", privs)             # público: se ve desde Todo
+    assert memoria.accesible(priv, "Terapia", privs)     # privado, desde el suyo, sí
+    assert not memoria.accesible(priv, "Casa nueva", privs)   # desde otro proyecto, no
+    assert not memoria.accesible(priv, "", privs)        # "Todo" es solo lo público
+    assert not memoria.accesible(priv, None, privs)      # MCP/CLI sin proyecto: solo lo público
+
+    # una sesión SIN proyecto no se acota: no hay proyecto al que pertenecer
+    memoria.sincronizar_sesion_inbox(root, "2026-08-31_100500_suelta", "[Diego]\nhola")
+    suelta = next(i for i in memoria.inbox_listar(root) if i["id"] == "sesion-2026-08-31_100500_suelta")
+    assert memoria.accesible(suelta, "", privs)
+    assert memoria.accesible(suelta, None, privs)
 
 
 def test_sesiones_ciclo_completo(root):
@@ -1488,15 +1519,15 @@ def test_agentes_base_no_borrables_y_asignacion(tmp_path, monkeypatch):
 
 
 def test_proyectos_son_subjects_y_la_sesion_los_fija(root):
-    memoria.proyecto_guardar(root, "Casa nueva", "personal")
-    memoria.proyecto_guardar(root, "Cliente X", "trabajo")
-    memoria.proyecto_guardar(root, "casa nueva", "privado")          # mismo proyecto: cambia el ámbito
+    memoria.proyecto_guardar(root, "Casa nueva", False)
+    memoria.proyecto_guardar(root, "Cliente X", False)
+    memoria.proyecto_guardar(root, "casa nueva", True)          # mismo proyecto: cambia privado
     lista = memoria.proyectos_listar(root)
     assert [p["nombre"] for p in lista] == ["Casa nueva", "Cliente X"]
-    assert lista[0]["ambito"] == "privado"
+    assert lista[0]["privado"] is True
     assert memoria.proyecto_por_nombre(root, "CASA NUEVA")["nombre"] == "Casa nueva"
     with pytest.raises(ValueError):
-        memoria.proyecto_guardar(root, "X", "secreto")
+        memoria.proyecto_guardar(root, "", True)   # sin nombre
 
     # una sesión con proyecto guarda dentro del proyecto aunque el modelo no lo ponga
     # (ver test_procesar_item_inyecta_subject_del_proyecto_de_la_sesion para el
@@ -1512,8 +1543,8 @@ def test_proyectos_son_subjects_y_la_sesion_los_fija(root):
 
 
 def test_proyecto_renombrar_y_eliminar(root):
-    memoria.proyecto_guardar(root, "Casa", "personal")
-    memoria.proyecto_guardar(root, "CasaNueva", "personal")   # prefijo del otro: no debe arrastrarse
+    memoria.proyecto_guardar(root, "Casa", False)
+    memoria.proyecto_guardar(root, "CasaNueva", False)   # prefijo del otro: no debe arrastrarse
     sid = sesiones.crear(root, [], "obra", proyecto="Casa")
     memoria.guardar_entrada(root, "Presupuesto", "3200 soles.", ["Proyectos/Casa"])
     memoria.guardar_entrada(root, "Otra obra", "cemento.", ["Proyectos/CasaNueva"])
@@ -1594,6 +1625,78 @@ def test_adjunto_no_soportado_deja_la_memoria_pendiente_y_se_reprocesa(root, mon
     assert "FERRETERIA SUR" in memoria.buscar(root, "ferreteria")
     assert memoria.buscar_memorias(root, texto="ferreteria")[0]["slug"] == "adjunto-no-leido"
     assert not memoria.inbox_listar(root)  # el item volvió a _procesado, no quedó suelto
+
+
+def test_video_largo_va_entero_al_cuerpo_y_condensado_al_prompt(root, monkeypatch):
+    """Una hora de video deja una linea de tiempo que no entra en un pedido al
+    modelo. Al prompt va resumida; al cuerpo de la memoria va ENTERA, que es la
+    unica copia de lo que paso ahi y lo que la hace buscable despues."""
+    fake = FakeLLMProcesador(json.dumps({
+        "titulo": "Charla larga", "sintesis": "Hablo una hora.", "tipo": "nota",
+        "tags": [], "subjects": ["Inmersivo"]}))
+    monkeypatch.setattr(procesar.llm_mod, "crear", lambda cfg: fake)
+    linea = chr(10).join(f"[{m:02d}:00] hablado del minuto {m} con el pajaro" for m in range(1200))
+    assert len(linea) > 3 * media.MAX_CHARS
+    monkeypatch.setattr(media, "extraer", lambda ag, rt, adj: (linea, "", True))
+    monkeypatch.setattr(media, "condensar",
+                        lambda cfg, t: "RESUMEN por tramos" if len(t) > media.MAX_CHARS else t)
+    (root / "07_Inbox/_adjuntos").mkdir(parents=True, exist_ok=True)
+    (root / "07_Inbox/_adjuntos/charla.mp4").write_bytes(b"video")
+    rel = memoria.capturar(root, "la charla", adjunto="07_Inbox/_adjuntos/charla.mp4")
+
+    r = procesar.procesar_item({"hamuq": root}, root / rel)
+    entrada = frontmatter.load(root / r["entrada"])
+    assert "RESUMEN por tramos" in fake.visto and "[19:00]" not in fake.visto   # al modelo, resumido
+    assert entrada.content.count("con el pajaro") == 1200                       # al cuerpo, entera
+    assert len(entrada.content) > 3 * media.MAX_CHARS
+    # y se lee por partes, que es como el chat vuelve a la transcripcion completa
+    pag = memoria.leer_pagina(root, r["entrada"], parte=2)
+    assert "parte 2/" in pag and "[500:00]" in pag   # la parte 2 trae el medio del video
+
+
+def test_youtube_se_mira_y_se_tira_sin_dejar_el_video_en_la_base(root, monkeypatch):
+    """Un link de YouTube se procesa bajando el video a un temporal: la memoria se
+    queda con la linea de tiempo y el link, no con 200 MB de mp4."""
+    fake = FakeLLMProcesador(json.dumps({
+        "titulo": "El pajaro del video", "sintesis": "Mostro un pajaro.", "tipo": "link",
+        "tags": [], "subjects": ["Naturaleza"]}))
+    monkeypatch.setattr(procesar.llm_mod, "crear", lambda cfg: fake)
+
+    def _bajar(url, destino):
+        (Path(destino) / "abc.mp4").write_bytes(b"video")
+        return Path(destino) / "abc.mp4", "Video de YouTube: Aves" + chr(10) + "Canal: Nat"
+    monkeypatch.setattr(youtube, "bajar", _bajar)
+    monkeypatch.setattr(media, "describir_video", lambda cfg, p: (
+        "[00:12] mira esto" + chr(10) * 2 + "[00:13] un pajaro en una rama", ""))
+    # la pagina de YouTube no se busca: no dice nada del video
+    monkeypatch.setattr(procesar, "_leer_url", lambda url, timeout=8.0: 1 / 0)
+    rel = memoria.capturar(root, "https://youtu.be/abc mira", tipo="link")
+
+    r = procesar.procesar_item({"hamuq": root}, root / rel)
+    entrada = frontmatter.load(root / r["entrada"])
+    assert entrada.metadata["adjunto"] == ""                        # el mp4 no entro a la base
+    assert entrada.metadata["enlaces"] == ["https://youtu.be/abc"]  # el link si: es a lo que se vuelve
+    assert "un pajaro en una rama" in entrada.content               # la linea de tiempo, en el cuerpo
+    assert "Canal: Nat" in fake.visto                               # la ficha, en el prompt
+    assert not list((root / "07_Inbox/_adjuntos").glob("*.mp4"))
+    assert memoria.buscar_memorias(root, texto="rama")
+
+
+def test_youtube_que_pide_cuenta_deja_la_memoria_pendiente(root, monkeypatch):
+    """Si el video no es publico la captura no se pierde: la entrada se crea igual
+    y queda marcada con el motivo, como cualquier adjunto ilegible."""
+    monkeypatch.setattr(procesar.llm_mod, "crear", lambda cfg: FakeLLMProcesador(json.dumps({
+        "titulo": "Link sin leer", "sintesis": "Un video de YouTube.", "tipo": "link",
+        "tags": [], "subjects": ["Inmersivo"]})))
+
+    def _bajar(url, destino):
+        raise RuntimeError("YouTube pide una cuenta para ese video y MeM solo lee publicos")
+    monkeypatch.setattr(youtube, "bajar", _bajar)
+    rel = memoria.capturar(root, "https://www.youtube.com/watch?v=priv", tipo="link")
+
+    r = procesar.procesar_item({"hamuq": root}, root / rel)
+    assert len(r["pendiente"]) == 1 and "cuenta" in r["pendiente"][0]
+    assert frontmatter.load(root / r["entrada"]).metadata["enlaces"] == ["https://www.youtube.com/watch?v=priv"]
 
 
 class FakeLLMNube:
@@ -1866,6 +1969,83 @@ def test_mcp_conexiones(root):
     assert r["result"].get("isError") and "FileNotFoundError" in r["result"]["content"][0]["text"]
 
 
+def test_proyectos_listar_lee_ambito_privado_viejo(root):
+    """PROYECTOS.md de antes del cambio traía `ambito: privado`/`personal`/
+    `trabajo`; se sigue leyendo como privado=True/False sin migración aparte —
+    la próxima escritura ya sale en el formato nuevo."""
+    p = root / memoria.PROYECTOS
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(frontmatter.dumps(frontmatter.Post("# Proyectos\n", proyectos=[
+        {"nombre": "Terapia", "ambito": "privado", "creado": "2026-01-01"},
+        {"nombre": "Museo", "ambito": "personal", "creado": "2026-01-01"},
+    ])), encoding="utf-8")
+    lista = {p["nombre"]: p for p in memoria.proyectos_listar(root)}
+    assert lista["Terapia"]["privado"] is True
+    assert lista["Museo"]["privado"] is False
+
+
+def test_paths_ocultos_tapa_sesiones_de_proyecto_privado(root):
+    """grep y leer_pagina trabajan con rutas: una sesión de un proyecto privado
+    tiene que quedar tan tapada como las memorias que salgan de ella."""
+    memoria.proyecto_guardar(root, "Terapia", True)
+    sid = sesiones.crear(root, [], "sesión privada", proyecto="Terapia")
+    ruta = f"10_Sesiones/{sid}.md"
+
+    assert ruta in memoria.paths_ocultos(root, "")
+    assert ruta in memoria.paths_ocultos(root, None)
+    assert ruta not in memoria.paths_ocultos(root, "Terapia")
+
+
+def test_fijar_proyecto_no_pisa_privado_de_uno_existente(root):
+    """El agente puede mudar la sesión a un proyecto que ya existe sin querer
+    tocar su privacidad: sin `privado` explícito en el pedido, proyecto_guardar
+    no debe volverlo público (pedido 2026-09-05)."""
+    memoria.proyecto_guardar(root, "Terapia", True)
+    sid = sesiones.crear(root, [], "obra", proyecto="")
+    ctx = {"sid": sid, "proyecto": ""}
+    chat._ejecutar(root, "fijar_proyecto", {"nombre": "Terapia"}, [], 5, ctx)
+    assert ctx["proyecto"] == "Terapia"
+    assert memoria.proyecto_por_nombre(root, "Terapia")["privado"] is True
+
+
+def test_mcp_privado_exige_clave(root):
+    """Sin `proyecto` el MCP solo ve lo público; con uno privado hace falta su
+    `clave` (o que venga en `claves`, el equivalente a MEM_CLAVES de stdio)."""
+    from mem import mcp
+
+    cfg = {"hamuq": root}
+    memoria.proyecto_guardar(root, "Diario", True)
+    memoria.guardar_entrada(root, "Secreto", "cuerpo", ["Proyectos/Diario"])
+
+    def buscar_memorias(**args):
+        r = mcp.despachar({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                           "params": {"name": "buscar_memorias", "arguments": {"texto": "cuerpo", **args}}}, cfg)
+        return r["result"]
+
+    assert json.loads(buscar_memorias()["content"][0]["text"].split("\n")[0]) == []
+    r = buscar_memorias(proyecto="Diario")   # privado, sin clave
+    assert r.get("isError") and "clave" in r["content"][0]["text"]
+    r = buscar_memorias(proyecto="Diario", clave="adivinada")
+    assert r.get("isError")
+    clave = memoria.proyecto_clave(root, "Diario")
+    r = buscar_memorias(proyecto="Diario", clave=clave)
+    assert json.loads(r["content"][0]["text"].split("\n")[0])[0]["slug"] == "secreto"
+
+    # claves= (lo que main() arma desde MEM_CLAVES): la tool no necesita mandarla
+    r = mcp.despachar({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                       "params": {"name": "buscar_memorias",
+                                  "arguments": {"texto": "cuerpo", "proyecto": "Diario"}}},
+                      cfg, claves={"Diario": clave})
+    assert json.loads(r["result"]["content"][0]["text"].split("\n")[0])[0]["slug"] == "secreto"
+
+    assert mcp._claves_env() == {}
+    os.environ["MEM_CLAVES"] = f"Diario={clave};Otro=xyz"
+    try:
+        assert mcp._claves_env() == {"Diario": clave, "Otro": "xyz"}
+    finally:
+        del os.environ["MEM_CLAVES"]
+
+
 def test_procesado_de_fondo_coalesce(root, monkeypatch):
     """Una captura que llega MIENTRAS corre una pasada no puede perderse: la
     pasada ya hizo su glob y no la ve, así que el bucle tiene que dar otra
@@ -1905,47 +2085,58 @@ def test_procesado_de_fondo_coalesce(root, monkeypatch):
     assert api._estado["hechas"] == 2            # el contador que mira el cliente sube
 
 
-def test_privada_es_de_la_memoria_no_del_proyecto(root):
-    """Lo privado dejó de heredarse en cada consulta: se siembra al crear y desde
-    ahí manda la casilla de la ficha (pedido 2026-08-08)."""
-    memoria.proyecto_guardar(root, "Terapia", "privado")
-    memoria.proyecto_guardar(root, "Museo", "trabajo")
+def test_privado_es_del_proyecto_no_de_la_memoria(root):
+    """Togglear un proyecto cambia la visibilidad de todo lo suyo al instante,
+    sin campo propio en la memoria que migrar (pedido 2026-09-05)."""
+    memoria.proyecto_guardar(root, "Terapia", True)
+    memoria.proyecto_guardar(root, "Museo", False)
 
     memoria.guardar_entrada(root, "Sesión del martes", "lo hablado", ["Proyectos/Terapia"])
     memoria.guardar_entrada(root, "Maqueta del hall", "avances", ["Proyectos/Museo"])
-    por_slug = {m["slug"]: m for m in memoria.buscar_memorias(root)}
-    assert por_slug["sesion-del-martes"]["privada"] is True
-    assert por_slug["maqueta-del-hall"]["privada"] is False
 
-    # el proyecto deja de ser privado: la memoria que salió de él NO se destapa
-    memoria.proyecto_guardar(root, "Terapia", "personal")
-    assert {m["slug"]: m["privada"] for m in memoria.buscar_memorias(root)}["sesion-del-martes"] is True
+    def slugs(p=None):
+        return {m["slug"] for m in memoria.buscar_memorias(root, proyecto=p)}
 
-    # la casilla manda, y destildar deja el false explícito: sin eso la migración
-    # volvería a marcarla en cada arranque
-    memoria.proyecto_guardar(root, "Terapia", "privado")
-    memoria.editar_entrada(root, "sesion-del-martes", privada=False)
-    entrada = root / "06_Biblioteca_Conocimiento/Entradas/sesion-del-martes.md"
-    assert frontmatter.load(entrada).metadata["privada"] is False
-    assert memoria.migrar_privadas(root) == 0
-    assert frontmatter.load(entrada).metadata["privada"] is False
+    assert "sesion-del-martes" not in slugs()          # "Todo" es solo lo público
+    assert "sesion-del-martes" in slugs("Terapia")     # desde el suyo, sí
+    assert "maqueta-del-hall" in slugs()                # público: se ve desde Todo
 
-    # y una captura hecha desde un proyecto privado entra al inbox ya marcada
-    ruta = memoria.capturar(root, "nota suelta", subjects=["Proyectos/Terapia"])
-    assert frontmatter.load(root / ruta).metadata["privada"] is True
+    # Terapia deja de ser privado: se destapa al instante, sin tocar la memoria
+    memoria.proyecto_guardar(root, "Terapia", False)
+    assert "sesion-del-martes" in slugs()
+
+    # y volver a marcarlo privado la tapa de nuevo, también al instante
+    memoria.proyecto_guardar(root, "Terapia", True)
+    assert "sesion-del-martes" not in slugs()
 
 
-def test_migrar_privadas_siembra_las_viejas(root):
-    """Las memorias anteriores al cambio no tienen el campo y se privaban por su
-    proyecto: la migración se lo escribe una vez, y no vuelve a tocarlas."""
-    memoria.proyecto_guardar(root, "Terapia", "privado")
+def test_un_proyecto_por_memoria(root):
+    """Una memoria vive en un solo proyecto (pedido 2026-09-05): con la
+    privacidad del lado del proyecto, dos proyectos en una misma memoria no
+    tienen respuesta que tenga sentido — se queda con el primero."""
+    assert memoria.un_proyecto(["Proyectos/A", "Salud", "Proyectos/A/Hijo"]) \
+        == ["Proyectos/A", "Salud", "Proyectos/A/Hijo"]
+    assert memoria.un_proyecto(["Proyectos/A", "Salud", "Proyectos/B"]) == ["Proyectos/A", "Salud"]
+
+    memoria.proyecto_guardar(root, "A", False)
+    memoria.proyecto_guardar(root, "B", False)
+    memoria.guardar_entrada(root, "Doble", "cuerpo", ["Proyectos/A", "Proyectos/B"])
+    assert memoria.leer_entrada(root, "doble")["subjects"] == ["Proyectos/A"]
+
+
+def test_migrar_un_proyecto_recorta_las_viejas(root):
+    """Las entradas de antes de la migración pueden tener dos `Proyectos/<n>`
+    en subjects: la migración one-shot las recorta al primero y no vuelve a
+    tocarlas."""
+    memoria.proyecto_guardar(root, "A", False)
+    memoria.proyecto_guardar(root, "B", False)
     p = root / "06_Biblioteca_Conocimiento/Entradas/vieja.md"
     p.write_text(frontmatter.dumps(frontmatter.Post(
-        "# Vieja\n", titulo="Vieja", subjects=["Proyectos/Terapia"])), encoding="utf-8")
+        "# Vieja\n", titulo="Vieja", subjects=["Proyectos/A", "Proyectos/B"])), encoding="utf-8")
 
-    assert memoria.migrar_privadas(root) == 1
-    assert frontmatter.load(p).metadata["privada"] is True
-    assert memoria.migrar_privadas(root) == 0, "idempotente: la 2ª corrida no escribe"
+    assert memoria.migrar_un_proyecto(root) == 1
+    assert frontmatter.load(p).metadata["subjects"] == ["Proyectos/A"]
+    assert memoria.migrar_un_proyecto(root) == 0, "idempotente: la 2ª corrida no escribe"
 
 
 # --------------------------------------------------------------------------

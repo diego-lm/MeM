@@ -24,6 +24,14 @@ dependencies = [
 # de un servidor externo: LM Studio (probado 2026-08) no acepta audio.
 [project.optional-dependencies]
 audio = ["faster-whisper"]
+# En CPU whisper va a ~1x tiempo real: un video de una hora tarda una hora. Estas
+# dos son las DLL de CUDA que ctranslate2 busca y no trae (~700 MB) y que
+# media._dll_cuda engancha (por PATH: add_dll_directory solo no le alcanza a
+# ctranslate2). Con ellas el mismo audio sale varias veces mas rapido.
+audio-gpu = ["faster-whisper", "nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
+# Links de YouTube: baja el video a un temporal para poder mirarlo y oirlo. Sin
+# esto un link de YouTube queda como link pelado, que es lo que habia antes.
+video = ["yt-dlp"]
 
 [project.scripts]
 mem = "mem.cli:main"

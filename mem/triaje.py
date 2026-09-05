@@ -71,7 +71,7 @@ def _proyectos(root, activo: str) -> str:
         return "Diego todavía no tiene proyectos."
     partes = ["Proyectos de Diego (usa el nombre exacto; si nombra uno que no está, "
               "dile que lo cree desde el selector de proyecto):"]
-    partes += [f"- {p['nombre']} ({p['ambito']})" for p in lista]
+    partes += [f"- {p['nombre']} ({'privado' if p['privado'] else 'público'})" for p in lista]
     if activo:
         partes.append(f"Proyecto activo ahora: {activo}. Si la captura es de este proyecto, "
                       "déjalo; si Diego dice que va a otro, ponlo en 'proyecto'.")

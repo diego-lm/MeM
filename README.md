@@ -24,6 +24,10 @@ Proveedores de IA en `config.toml` (cambiar = editar ese archivo o Ajustes → P
 
 Los clientes de chat y de visión (`describir_imagen`) llevan un timeout de 240s (`llm.TIMEOUT_API`): sin él, un modelo local que todavía está cargando (LM Studio JIT) o un `claude_code` sin sesión iniciada colgaban el turno sin señal ninguna. El registro plegable de cada turno muestra un paso por adjunto leído y una línea de cierre `⏱ turno · agente · duración · tokens`, así que un turno lento se ve mientras pasa, no solo al final.
 
+**Video → línea de tiempo (`media.describir_video`).** Las dos vías del video ya no son dos bloques pegados: lo hablado y lo visto se mezclan ordenados por segundo (`[mm:ss] 🗣` / `[mm:ss] 👁`), que es lo único que deja entender un "mirá esto". El habla sale de la pista de subtítulos si el archivo ya la trae (`_subtitulos`, es lo que baja yt-dlp de YouTube: instantáneo contra la hora que tarda whisper) y si no de `_segmentos`, que ahora conserva los tiempos de faster-whisper en vez de tirarlos; se agrupa por minuto porque una hora deja ~1000 segmentos. Los fotogramas ya no son 4 repartidos: son los cambios de escena (`_escenas`, un `select='gt(scene,0.4)'`) más los momentos donde alguien dice "mirá esto" (`RX_CUE`), sobre el piso repartido de siempre, deduplicados a 5s y con techo `MAX_FOTOGRAMAS`; van al modelo de a `GRUPO` en un solo pedido (`llm.describir_imagen` acepta una lista) para que vea qué cambia entre uno y otro. La respuesta no se parsea: el bloque entero entra en el segundo del primer fotograma del grupo.
+
+**`media.condensar` y el tope que se movió.** `extraer` ya no recorta lo derivado: la línea de tiempo completa va al cuerpo de la entrada, que es su única copia y lo que la hace buscable. El recorte pasó a los dos lugares donde ese texto entra al contexto de un modelo —el prompt del procesador y `leer_medio`/adjuntos del chat—, que llaman a `condensar`: por debajo de `MAX_CHARS` no hace nada, por encima resume tramo por tramo y nunca levanta excepción (si el resumen falla, recorta). `mem/youtube.py` es la otra punta: baja el video a 360p a un temporal con los subtítulos pegados adentro del mp4, se lee y se borra. Solo públicos; cookies sería un secreto más que guardar y todavía no hizo falta.
+
 ## Uso
 
 ```
@@ -108,13 +112,30 @@ Settings → Connectors → **Add custom connector** → URL `https://tu-maquina
 
 Los conectores no se dan de alta desde la app: se configuran una sola vez en la web con la misma cuenta y aparecen solos en el móvil. Ahí se activan por chat desde el menú `+`. Nada que instalar en el teléfono más allá de la app de Claude.
 
+### Proyectos privados
+
+Las 5 tools de lectura (`buscar`, `leer_pagina`, `conexiones`, `grep`, `buscar_memorias`) aceptan `proyecto` y `clave`. Sin `proyecto`, Claude solo ve **Todo** (lo público); con `proyecto=<n>` de uno privado hace falta además su `clave` — se genera desde Ajustes › ✎ Gestionar › Clave MCP (se muestra una sola vez) y se valida con `memoria.clave_valida` (hash SHA-256, `hmac.compare_digest`).
+
+Por HTTP (claude.ai) la clave va en los argumentos de cada llamada a la tool, porque no hay entorno de por medio. Por stdio (Desktop/Code) `mem/mcp.py` además lee `MEM_CLAVES` del entorno del proceso, así no hay que pasarla en cada pregunta:
+
+```json
+{
+  "mcpServers": {
+    "mem": {
+      "command": "python", "args": ["-m", "mem.mcp"],
+      "env": { "MEM_CLAVES": "Diario=<clave-generada>;Obra=<otra-clave>" }
+    }
+  }
+}
+```
+
 ### Los links "Abrir en el browser"
 
 Cuando el cliente de Claude no puede mostrar algo (una foto, un video, un markdown largo), las tools devuelven un link a la PWA — `app_url` + `/#entry/<slug>` — que abre esa memoria en el navegador. `app_url` apunta al **host tailnet** (`https://tu-maquina.tu-tailnet.ts.net:8765`), no al Funnel: el Funnel solo publica `/mcp`, y publicar la app entera con `token = ""` dejaría la memoria abierta a internet. Con Tailscale activo en el móvil el link abre; sin Tailscale, no. Para que abriera desde cualquier red habría que publicar `/` en el Funnel **y** poner un `token`, pero entonces el link pediría auth que el navegador no manda.
 
 ### Seguridad
 
-El secreto del path es toda la llave y viaja solo por el HTTPS del Funnel. Si se filtra: cambiar `mcp_secreto`, reiniciar `mem serve` y actualizar la URL en el conector. Nunca hacer funnel del 443 (queda la PWA completa expuesta).
+El secreto del path es toda la llave y viaja solo por el HTTPS del Funnel. Si se filtra: cambiar `mcp_secreto`, reiniciar `mem serve` y actualizar la URL en el conector. Nunca hacer funnel del 443 (queda la PWA completa expuesta). Si se filtra la clave de un proyecto privado, volver a generarla desde Ajustes › ✎ Gestionar › Clave de acceso invalida la anterior al instante — solo hace falta actualizar `MEM_CLAVES` o el argumento de la tool con la nueva.
 
 ## Frontend (mem/static/)
 

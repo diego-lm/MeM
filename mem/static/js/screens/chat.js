@@ -5,15 +5,14 @@ import { useStore, getState, setState, back, go } from "../state.js";
 import { dict, MODE_FALLBACK } from "../i18n.js";
 import { get, patch, post, del, streamMessage, capturar as encolarCaptura } from "../api.js";
 import { Sheet, MicButton, ToolChips, useDictado, dictadoSoportado, SelectorModo,
-         SelectorSesion, ConfirmarBorradoSesion, BotonCompartir, useProyectos, proyectosListos,
+         ConfirmarBorradoSesion, BotonCompartir, useProyectos, proyectosListos,
          Adjunto, ChipMenu, Camara, camaraSoportada, IMG_EXT, AccionesAdjunto,
          useAdjuntos, TiraAdjuntos, archivosDelPortapapeles, BTN_ICONO } from "../ui.js";
-import { ProyectoActivo } from "../proyectos.js";
-import { usePrivado, privadosDe, esSesionPrivada, PantallaPrivada } from "../privado.js";
+import { itemsDeProyectos, useProyectosVisibles } from "../proyectos.js";
+import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, PantallaPrivada } from "../privado.js";
 import { Markdown } from "../md.js";
 import { GraphView } from "../vis/grafo.js";
 import { TimelineGlobal } from "../vis/timeline.js";
-import { Memory } from "./memory.js";
 
 // las citas del motor pueden apuntar a índices (00_INDICE_*.md) además de entradas;
 // solo las entradas reales tienen pantalla propia (#entry/slug) — el resto se
@@ -288,7 +287,7 @@ export function noRecordarMas(slugs) {
   localStorage.setItem(NO_RECORDAR, JSON.stringify(slugs));
 }
 
-function Recuerdos({ draft, lang, oculto, enlazadas, nunca, onEnlazar, onVer, onNunca }) {
+function Recuerdos({ draft, lang, oculto, privs, enlazadas, nunca, onEnlazar, onVer, onNunca }) {
   const L = dict(lang);
   const [items, setItems] = useState([]);
   useEffect(() => {
@@ -303,7 +302,7 @@ function Recuerdos({ draft, lang, oculto, enlazadas, nunca, onEnlazar, onVer, on
   // el candado de lo privado vale también acá; lo ya enlazado no se re-ofrece
   // (enlazadas vive aparte del texto — pedido 2026-08-09: nunca más markup crudo
   // [[slug|Título]] a la vista del compositor) y lo descartado tampoco
-  const vivos = items.filter((m) => !(oculto && m.privada) && !nunca.includes(m.slug)
+  const vivos = items.filter((m) => !(oculto && esMemoriaPrivada(m, privs)) && !nunca.includes(m.slug)
                                     && !enlazadas.some((e) => e.slug === m.slug));
   if (!vivos.length) return null;
   const btn = "flex-shrink:0;width:19px;align-self:stretch;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:var(--font-mono)";
@@ -544,14 +543,40 @@ function transcripcion(meta, mensajes) {
     .filter(Boolean).join("\n\n");
 }
 
-function DetailsSheet({ sid, meta, mensajes, onClose, onRenombrar, onBorrar, lang }) {
+function DetailsSheet({ sid, meta, mensajes, onClose, onRenombrar, onBorrar, onMoverProyecto, onGuardar, lang }) {
   const L = dict(lang);
   const [fase, setFase] = useState("idle"); // idle|confirm|running|done
+  const [archivar, setArchivar] = useState(false);   // casilla "y archivar la sesión" del confirm
+  const [moviendo, setMoviendo] = useState(false);
+  const [destinoProy, setDestinoProy] = useState(null);   // null = nada elegido aún ("" ES "Todo")
+  const [moviendoBusy, setMoviendoBusy] = useState(false);
+  const [errorMover, setErrorMover] = useState("");
+  const proyectosVis = useProyectosVisibles();
+  const proyectoActual = String(meta.proyecto || "");
 
-  async function destilarYArchivar() {
+  // Un solo verbo, "Guardar en memoria" — con o sin archivar es la misma acción
+  // (pedido 2026-09-05). Sin la casilla es exactamente lo que ya hace el banner
+  // de contexto (onGuardar = destilarAhora, del root): sin teatro de running/done,
+  // que es apropiado para lo consecuente — archivar saca la sesión de la lista.
+  async function confirmarGuardar() {
+    if (!archivar) { await onGuardar(); onClose(); return; }
     setFase("running");
     await post(`/sessions/${sid}/archive`, {});
     setFase("done");
+  }
+
+  function toggleMover() {
+    setMoviendo((m) => !m);
+    setDestinoProy(null);
+    setErrorMover("");
+  }
+  async function confirmarMover() {
+    if (moviendoBusy || destinoProy === null) return;
+    setMoviendoBusy(true);
+    setErrorMover("");
+    try { await onMoverProyecto(destinoProy); onClose(); }
+    catch (e) { setErrorMover(String(e?.message || e)); }
+    setMoviendoBusy(false);
   }
 
   // si el procesado de fondo ya terminó antes de que Diego llegue acá, el item
@@ -596,9 +621,11 @@ function DetailsSheet({ sid, meta, mensajes, onClose, onRenombrar, onBorrar, lan
     <${Sheet} onClose=${onClose}>
       <div style="padding:8px 22px 26px">
         <h3 style="margin:0 0 8px;font-family:var(--font-heading);font-size:24px">${L.tArchiveQ}</h3>
-        <p style="margin:0 0 20px;font-size:14.5px;line-height:1.6;color:var(--text-2)">${L.tArchiveBody}</p>
-        <div role="button" tabindex="0" onClick=${destilarYArchivar} class="mem-btn-accent"
-             style="height:52px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:16px;cursor:pointer;margin-bottom:10px">${L.tDistill}</div>
+        <p style="margin:0 0 16px;font-size:14.5px;line-height:1.6;color:var(--text-2)">${L.tArchiveBody}</p>
+        <div role="button" tabindex="0" aria-checked=${archivar} class="mem-tog check ${archivar ? "on" : ""}"
+             style="margin-bottom:18px" onClick=${() => setArchivar((v) => !v)}>${L.tAndArchive}</div>
+        <div role="button" tabindex="0" onClick=${confirmarGuardar} class="mem-btn-accent"
+             style="height:52px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:16px;cursor:pointer;margin-bottom:10px">${L.tSaveMemory}</div>
         <div role="button" tabindex="0" onClick=${onClose} style="height:48px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:14.5px;cursor:pointer;opacity:.7">${L.tCancel}</div>
       </div>
     <//>`;
@@ -623,8 +650,25 @@ function DetailsSheet({ sid, meta, mensajes, onClose, onRenombrar, onBorrar, lan
               <span role="button" tabindex="0" onClick=${() => go("entry", slugDe(p))}
                     style="max-width:220px;height:30px;padding:0 11px;border-radius:var(--radius-md);display:flex;align-items:center;font-size:12px;cursor:pointer;background:color-mix(in srgb,var(--color-accent-2) 18%,transparent);color:var(--color-accent-2-700);font-family:var(--font-mono);overflow:hidden"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${slugDe(p)}</span></span>`)}
           </div>`}
-        <div role="button" tabindex="0" onClick=${() => setFase("confirm")}
-             style="height:52px;border-radius:var(--radius-md);border:1.5px solid var(--color-accent);color:var(--color-accent-700);display:flex;align-items:center;justify-content:center;gap:8px;font-family:var(--font-heading);font-size:16px;cursor:pointer;margin-bottom:12px">${L.tArchive}</div>
+        <div role="button" tabindex="0" onClick=${() => { setArchivar(false); setFase("confirm"); }}
+             style="height:52px;border-radius:var(--radius-md);border:1.5px solid var(--color-accent);color:var(--color-accent-700);display:flex;align-items:center;justify-content:center;gap:8px;font-family:var(--font-heading);font-size:16px;cursor:pointer;margin-bottom:12px">${L.tSaveMemory}</div>
+        <!-- mover ESTA sesión de proyecto: a propósito en dos pasos (elegir +
+             confirmar), separado del chip de arriba que solo cambia de dónde
+             estás parado (pedido 2026-08-31) -->
+        <div role="button" tabindex="0" onClick=${toggleMover}
+             style="height:46px;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;gap:7px;font-size:13.5px;cursor:pointer;margin-bottom:${moviendo ? 8 : 10}px">→ ${L.tMoveProject}</div>
+        ${moviendo && html`
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;font-size:13px">
+            <span style="color:var(--text-2)">${proyectoActual || L.tProjAll} →</span>
+            <${ChipMenu} etiqueta=${destinoProy === null ? "…" : (destinoProy || L.tProjAll)} ancho=${230}
+                         items=${itemsDeProyectos(proyectosVis.filter((p) => p.nombre !== proyectoActual), destinoProy,
+                                                  proyectoActual ? [{ id: "", label: L.tProjAll }] : [], lang)}
+                         onPick=${setDestinoProy} />
+            ${destinoProy !== null && html`
+              <span role="button" tabindex="0" onClick=${confirmarMover} class="mem-btn-accent"
+                    style="height:34px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;cursor:pointer;font-size:13px;opacity:${moviendoBusy ? 0.6 : 1}">${L.tConfirm}</span>`}
+            ${errorMover && html`<div style="flex-basis:100%;font-size:12px;color:var(--color-priv)">${errorMover}</div>`}
+          </div>`}
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div role="button" tabindex="0" onClick=${onRenombrar} style="flex:1;height:46px;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:13.5px;cursor:pointer">${L.tRename}</div>
           <div role="button" tabindex="0" onClick=${onBorrar} class="mem-btn-danger"
@@ -665,7 +709,6 @@ export function Chat() {
   });
   const [draft, setDraft] = useState(inicial.texto || "");
   const [sheet, setSheet] = useState(null);
-  const [memoriaAbierta, setMemoriaAbierta] = useState(false);
   const [stored, setStored] = useState(false);
   const [ags, setAgs] = useState({ agentes: [], asignaciones: {} });
   const [memorias, setMemorias] = useState([]);   // entradas nacidas en esta sesión
@@ -719,12 +762,11 @@ export function Chat() {
     t.focus();
     t.selectionStart = t.selectionEnd = t.value.length;
   }, [!!meta]);
-  // cambiar de sesión sin desmontar Chat (selector de arriba, o "nueva sesión"
-  // desde el popup de Memory) no reejecuta el useState de `inicial` —solo
-  // corre al montar—, así que un draft que llega DESPUÉS, para un sid
-  // DISTINTO del que ya se leyó, cae acá. En el primer montaje no hay nada
-  // que leer: `inicial` ya se comió esa misma clave. (La misma sesión que ya
-  // está montada usa `insertarEnSesion` directo — sid ahí nunca cambia.)
+  // cambiar de sesión sin desmontar Chat (desde el sidebar/tabbar — pedido
+  // 2026-08-31, antes desde el selector de arriba) no reejecuta el useState
+  // de `inicial` —solo corre al montar—, así que un draft que llega DESPUÉS,
+  // para un sid DISTINTO del que ya se leyó, cae acá. En el primer montaje no
+  // hay nada que leer: `inicial` ya se comió esa misma clave.
   useEffect(() => {
     const crudo = sessionStorage.getItem(`mem.draft.${sid}`);
     if (!crudo) return;
@@ -737,13 +779,6 @@ export function Chat() {
       .filter((r) => !m.some((x) => x.ruta === r))
       .map((r) => ({ ruta: r, titulo: r.split("/").pop() }))]);
   }, [sid]);
-  // Memory como popup, "agregar a sesión" apuntando a ESTA misma sesión ya
-  // montada: inyecta directo, sin pasar por sessionStorage (que necesita un
-  // cambio de sid para que el efecto de arriba lo levante).
-  function insertarEnSesion({ adjuntos = [], enlazadas: nuevasEnlazadas = [] } = {}) {
-    if (nuevasEnlazadas.length) setEnlazadas((e) => [...e, ...nuevasEnlazadas.filter((x) => !e.some((y) => y.slug === x.slug))]);
-    if (adjuntos.length) setSeleccionMedia((m) => [...m, ...adjuntos.filter((a) => !m.some((x) => x.ruta === a.ruta))]);
-  }
   const { oculto } = usePrivado();
   const privsProy = privadosDe(useProyectos());
 
@@ -812,8 +847,8 @@ export function Chat() {
 
   useEffect(() => { get("/agents").then(setAgs).catch(() => {}); }, []);
   // esta ES la sesión en uso: sobrevive a cambiar de pantalla y a recargar la app
-  useEffect(() => { if (meta) setState({ sesionActiva: { id: sid, titulo: meta.titulo || sid } }); },
-            [sid, meta?.titulo]);
+  useEffect(() => { if (meta) setState({ sesionActiva: { id: sid, titulo: meta.titulo || sid, proyecto: meta.proyecto || "" } }); },
+            [sid, meta?.titulo, meta?.proyecto]);
 
   /** Cierre del turno, venga por SSE (lo normal) o por GET /turn al reengancharse
    *  después de haber salido del chat: el resultado es el mismo objeto. */
@@ -961,10 +996,13 @@ export function Chat() {
     setMeta((p) => ({ ...p, modo: nuevo }));
     await patch(`/sessions/${sid}`, { modo: nuevo });
   }
-  async function cambiarProyecto(nombre) {
+  /** Mover ESTA sesión a otro proyecto: paso aparte, explícito y con
+   *  confirmación — ⋯ → "Mover a otro proyecto" (pedido 2026-08-31: el chip de
+   *  arriba que hacía esto sin avisar se fue, ver DetailsSheet). */
+  async function moverProyectoSesion(nombre) {
     setMeta((p) => ({ ...p, proyecto: nombre }));
-    setState({ proyecto: nombre });   // el chatbox de Home queda en el mismo proyecto
-    try { await patch(`/sessions/${sid}`, { proyecto: nombre }); } catch {}
+    setState({ proyecto: nombre });   // "entrar a una sesión es mudarse a su proyecto" también al revés
+    await patch(`/sessions/${sid}`, { proyecto: nombre });
   }
   /** Renombrar in situ (pedido 2026-08-09: nada de prompt()) — el título se
    *  vuelve un input en el mismo lugar. iniciarRenombre también cierra el
@@ -1112,10 +1150,10 @@ export function Chat() {
     <div onDragEnter=${onDragEnter} onDragOver=${onDragOver} onDragLeave=${onDragLeave} onDrop=${onDrop}
          style="position:relative;flex:1;display:flex;flex-direction:column;animation:scIn .4s cubic-bezier(.22,1,.36,1);min-height:0">
       <div class="mem-chat-head ${sesPrivada ? "mem-chat-head-priv" : ""}">
-        <!-- FILA 1: volver · buscador de sesiones · título (pedido 2026-08-04) -->
+        <!-- FILA 1: volver · título (pedido 2026-08-04; el buscador de sesiones
+             se fue al sidebar/tabbar — pedido 2026-08-31) -->
         <div style="display:flex;align-items:center;gap:8px">
           <div role="button" tabindex="0" onClick=${back} style="width:44px;height:44px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:19px;cursor:pointer;flex-shrink:0;margin-left:-8px">‹</div>
-          <${SelectorSesion} sid=${sid} lang=${s.lang} onPick=${(id) => { if (id !== sid) go("chat", id); }} />
           <div style="flex:1;min-width:0">
             ${editandoTitulo
               ? html`<input ref=${tituloRef} value=${tituloTmp} onInput=${(e) => setTituloTmp(e.target.value)}
@@ -1129,7 +1167,6 @@ export function Chat() {
               <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${subjects.join(" · ") || "—"}</span>
             </div>
           </div>
-          <div role="button" tabindex="0" title=${L.tMemories} onClick=${() => setMemoriaAbierta(true)} style="width:44px;height:44px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;flex-shrink:0">▤</div>
           <div role="button" tabindex="0" onClick=${() => setSheet("details")} style="width:44px;height:44px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:17px;flex-shrink:0;margin-right:-8px">⋯</div>
         </div>
         <!-- FILA 2: modo (dropdown) y proyecto en el mismo renglón; a la derecha
@@ -1138,7 +1175,7 @@ export function Chat() {
         <div class="mem-chat-head-row2" style="margin-top:8px">
           <${SelectorModo} valor=${meta.modo} modos=${modos} lang=${s.lang} onPick=${cambiarModo} />
           ${sesPrivada && html`
-            <span class="mem-proy-chip mem-privada" title=${L.tPriv}>⚿ ${L.ambitos.privado}</span>`}
+            <span class="mem-proy-chip mem-privada" title=${L.tPriv}>⚿ ${L.tPrivado}</span>`}
           ${agenteChat && html`
             <${ChipMenu} etiqueta=${`${agenteChat.icono} ${agenteChat.nombre}`} ancho=${230}
                          titulo=${`${L.tAgentFor} ${modoActual.nombre}`} estilo="max-width:none"
@@ -1148,9 +1185,6 @@ export function Chat() {
                          }))}
                          onPick=${elegirAgente} />`}
           <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px">
-            <!-- el proyecto de la sesión, arriba a la derecha como en Home y en
-                 Memory (pedido 2026-08-12) — mismo chip, mismo editor -->
-            <${ProyectoActivo} valor=${String(meta.proyecto || "")} lang=${s.lang} onPick=${cambiarProyecto} />
             <!-- el ⌸ "Grabar como sesión" se quitó (pedido 2026-08-06): el primer
                  turno ya pasa la temporal a activa solo (chat.turno).
                  Borrar se mudó al sheet de "⋯": era un chip de 32px pegado al ✕
@@ -1214,7 +1248,7 @@ export function Chat() {
         <!-- "recordar" mientras se escribe: lo que ya está en la memoria y viene
              al caso, en una tira fina — mirar (⊙), agregar (＋) o descartar (✕) -->
         ${phase !== "working" && html`
-          <${Recuerdos} draft=${draft} lang=${s.lang} oculto=${oculto} enlazadas=${enlazadas} nunca=${nunca}
+          <${Recuerdos} draft=${draft} lang=${s.lang} oculto=${oculto} privs=${privsProy} enlazadas=${enlazadas} nunca=${nunca}
                         onEnlazar=${enlazarMemoria} onVer=${setViendoRecuerdo} onNunca=${nuncaRecordar} />`}
         <!-- micrófono · pegar · adjuntar · cámara · escribir · enviar, todo en UNA
              fila (pedido 2026-08-06): los botones a la altura del input, y el ancho
@@ -1248,14 +1282,8 @@ export function Chat() {
         <${Camara} lang=${s.lang} onClose=${() => setCamara(false)}
                    onListo=${(f) => { adjs.agregar([f]); setCamara(false); }} />`}
       ${sheet === "details" && html`<${DetailsSheet} sid=${sid} meta=${meta} mensajes=${mensajes} onClose=${() => setSheet(null)} onRenombrar=${iniciarRenombre}
-                                                    onBorrar=${() => { setSheet(null); setPorBorrar({ id: sid, titulo: meta.titulo }); }} lang=${s.lang} />`}
-      <!-- Memory como popup (pedido 2026-08-10): mismo componente de siempre,
-           sin salir de la sesión — "agregar a sesión" ya apunta a sesionActiva,
-           que sigue siendo esta aunque Memory se vea encima. -->
-      ${memoriaAbierta && html`
-        <${Sheet} onClose=${() => setMemoriaAbierta(false)} maxHeight="94%">
-          <${Memory} onClose=${() => setMemoriaAbierta(false)} onInsertar=${insertarEnSesion} />
-        <//>`}
+                                                    onBorrar=${() => { setSheet(null); setPorBorrar({ id: sid, titulo: meta.titulo }); }}
+                                                    onMoverProyecto=${moverProyectoSesion} onGuardar=${destilarAhora} lang=${s.lang} />`}
       ${porBorrar && html`
         <${ConfirmarBorradoSesion} ses=${porBorrar} memorias=${memorias} adjuntos=${adjuntos} lang=${s.lang}
                                    onClose=${() => setPorBorrar(null)} onBorrar=${borrarSesion} />`}

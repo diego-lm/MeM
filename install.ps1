@@ -27,6 +27,8 @@ param(
     [string[]]$Con = @(),   # ids de componentes.json a instalar sin preguntar
     [switch]$SinPreguntar,  # nunca preguntar (desatendido): no instala extras
     [switch]$Audio,         # instala tambien el extra [audio] (faster-whisper, pesado)
+    [switch]$AudioGpu,      # como -Audio pero con las DLL de CUDA: ~15x mas rapido, ~700 MB
+    [switch]$Video,         # extra [video] (yt-dlp) + ffmpeg: links de YouTube y videos largos
     [switch]$SinAutostart   # no crear el acceso directo de arranque automatico
 )
 
@@ -136,7 +138,11 @@ Paso "Instalando dependencias (venv + pip)"
 Push-Location $Destino
 try {
     if (-not (Test-Path ".venv")) { & $python -m venv .venv }
-    $paquete = if ($Audio) { ".[audio]" } else { "." }
+    $extras = @()
+    if ($Audio)    { $extras += "audio" }
+    if ($AudioGpu) { $extras += "audio-gpu" }
+    if ($Video)    { $extras += "video" }
+    $paquete = if ($extras.Count) { ".[" + ($extras -join ",") + "]" } else { "." }
     & .venv\Scripts\pip install -q -e $paquete pytest
     if ($LASTEXITCODE -ne 0) { Fallar "pip install fallo (ver arriba)." }
 
@@ -153,6 +159,10 @@ try {
 # modulo que usa la app, y sabe ademas reconocer una instalacion hecha a mano
 # (ComfyUI clonado a pulso no es "falta ComfyUI", y ofrecer el paquete de winget
 # ahi dejaria DOS ComfyUI en la maquina).
+# yt-dlp junta audio y video con ffmpeg, y leer un video tambien lo necesita:
+# pedir -Video sin ffmpeg deja la mitad puesta.
+if ($Video -and $Con -notcontains "ffmpeg") { $Con += "ffmpeg" }
+
 Paso "Componentes opcionales"
 Push-Location $Destino
 try {

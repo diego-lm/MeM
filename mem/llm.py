@@ -121,33 +121,41 @@ MAX_DESCRIPCION = 1500   # la descripción ES el contenido guardado: 300 tokens 
 TIMEOUT_API = 240
 
 
-def describir_imagen(cfg: dict, ruta: Path, prompt: str = DESCRIBIR_PROMPT) -> str:
+def describir_imagen(cfg: dict, ruta: Path | list[Path], prompt: str = DESCRIBIR_PROMPT) -> str:
     """Describe una imagen adjunta con el proveedor de `cfg` (visión), para que el
     procesador de inbox pueda categorizarla por su contenido real y no solo el
     nombre de archivo. claude_code (CLI -p) no soporta visión en este wrapper -> "".
 
     Quién es capaz de verla lo decide `media._con_modelo`; acá se usa cfg["modelo"] tal cual.
+
+    `ruta` puede ser una LISTA: van todas en el mismo mensaje. Es lo que necesita
+    un video —los fotogramas se entienden juntos, no de a uno: el modelo ve qué
+    cambia entre uno y otro— y de paso son N veces menos viajes al proveedor.
     """
     prov = cfg.get("proveedor", "anthropic")
     if prov == "claude_code":
         return ""
-    datos = base64.b64encode(ruta.read_bytes()).decode()
-    mime = mimetypes.guess_type(ruta.name)[0] or "image/jpeg"
+    rutas = [ruta] if isinstance(ruta, Path) else list(ruta)
+    imgs = [(base64.b64encode(r.read_bytes()).decode(),
+             mimetypes.guess_type(r.name)[0] or "image/jpeg") for r in rutas]
+    tope = MAX_DESCRIPCION * len(imgs)
     if prov == "anthropic":
         import anthropic
         key = os.environ.get(cfg.get("api_key_env") or "ANTHROPIC_API_KEY") or None
         r = anthropic.Anthropic(api_key=key, timeout=TIMEOUT_API).messages.create(
-            model=cfg["modelo"], max_tokens=MAX_DESCRIPCION, messages=[{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": mime, "data": datos}},
+            model=cfg["modelo"], max_tokens=tope, messages=[{"role": "user", "content": [
+                *[{"type": "image", "source": {"type": "base64", "media_type": mime, "data": datos}}
+                  for datos, mime in imgs],
                 {"type": "text", "text": prompt},
             ]}])
         return "".join(b.text for b in r.content if b.type == "text")
     from openai import OpenAI
     key = os.environ.get(cfg.get("api_key_env", ""), "") or "lm-studio"
     client = OpenAI(base_url=cfg["base_url"], api_key=key, timeout=TIMEOUT_API)
-    r = client.chat.completions.create(model=cfg["modelo"], max_tokens=MAX_DESCRIPCION, messages=[{"role": "user", "content": [
+    r = client.chat.completions.create(model=cfg["modelo"], max_tokens=tope, messages=[{"role": "user", "content": [
         {"type": "text", "text": prompt},
-        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{datos}"}},
+        *[{"type": "image_url", "image_url": {"url": f"data:{mime};base64,{datos}"}}
+          for datos, mime in imgs],
     ]}])
     return r.choices[0].message.content or ""
 

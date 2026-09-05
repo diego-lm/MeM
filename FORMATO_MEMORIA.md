@@ -152,6 +152,8 @@ Cliente directo Black Tree, desarrollando simuladores de realidad virtual en Per
 
 Reglas de actualización de metadatos al escribir sobre una entrada existente: **las listas se unen** (sin duplicados, se conserva el orden), **los escalares ya presentes no se pisan**. Excepción: el reproceso reemplaza título, resumen y subjects (los anteriores eran una conjetura sobre material ilegible).
 
+Archivos de antes del 2026-09-05 pueden traer `privada: true/false` en el frontmatter: es un campo histórico, ignorado por completo — la visibilidad de la memoria hoy es la de su proyecto (§4.3), no algo que se lea o escriba en la entrada.
+
 ### 3.3 Cuerpo: tres secciones fijas
 
 ```markdown
@@ -165,6 +167,15 @@ Transcripción literal: lo que se ve en la foto/video, lo que se oye en el
 audio, el texto del PDF. Es LA ÚNICA copia en texto del medio — es lo que
 hace la memoria encontrable por contenido. Se REEMPLAZA en cada reproceso
 (nunca dos transcripciones contradictorias).
+
+Un video no deja dos bloques (lo que se ve por un lado, lo que se oye por
+otro) sino UNA línea de tiempo, ordenada por segundo y con la marca puesta:
+`[mm:ss] 🗣 …` lo hablado, `[mm:ss] 👁 …` lo que se ve. Es lo que hace que
+"mirá, esto es lo que te quería mostrar" y el pájaro del fotograma siguiente
+signifiquen algo juntos. Va ENTERA, sin tope: se lee por partes con
+`leer_pagina`, y lo que se le muestra a un modelo se resume aparte
+(`media.condensar`). Un link de YouTube deja esa misma línea de tiempo con
+`adjunto` vacío y la URL en `enlaces`: el video se mira y se tira.
 
 ## Registro histórico
 **AAAA-MM-DD** (origen) — qué pasó.       ← solo se AGREGA, nunca se reescribe
@@ -218,7 +229,8 @@ Son cosas distintas y conviven:
 - El match por prefijo es **por segmento**: `Proyectos/Casa` NO matchea `Proyectos/CasaNueva`.
 - Comparaciones insensibles a mayúsculas y tildes (normalización NFD, se quitan diacríticos).
 - Más de dos niveles se aplanan en la hoja al indexar: `A/B/C` cuelga de `## A` como hoja `B/C`.
-- **Los proyectos son subjects**: un proyecto llamado "Obra" = subject `Proyectos/Obra`. Así heredan gratis índices, árbol y búsqueda, sin segunda taxonomía. La lista de proyectos (nombre, ámbito `personal|trabajo|privado`, fecha) vive en `08_Categorias/PROYECTOS.md`.
+- **Los proyectos son subjects**: un proyecto llamado "Obra" = subject `Proyectos/Obra`. Así heredan gratis índices, árbol y búsqueda, sin segunda taxonomía. La lista de proyectos (nombre, `privado` bool, `clave_hash`, fecha) vive en `08_Categorias/PROYECTOS.md`.
+- **Una memoria vive en un solo proyecto**: si llegan subjects de más de uno, se queda con el primer `Proyectos/<n>` (y sus hijos) y descarta los demás — con la privacidad del lado del proyecto (§4.3), dos proyectos en una misma memoria no tienen una respuesta que tenga sentido.
 - Regla para catalogadores (humanos o LLM): **reusar el árbol existente**; crear un subject nuevo solo si de verdad nada encaja.
 
 ### 4.2 Tags
@@ -228,6 +240,16 @@ Son cosas distintas y conviven:
 - Al actualizar una entrada los tags se **unen** (nunca se pierden); al editar a mano, la lista del usuario **reemplaza** (el usuario manda).
 
 ---
+
+### 4.3 Visibilidad: lo privado es del proyecto
+
+Un proyecto **ordena**; un proyecto **privado además encierra** (cambio de criterio del 2026-09-05: antes `privada` era un campo propio de la memoria, sembrado una vez al crearla — ver más abajo por qué se abandonó).
+
+- **`privado` es un campo del proyecto** (`08_Categorias/PROYECTOS.md`, §4.1), no de la memoria — la entrada no tiene ningún campo de visibilidad propio. Togglear un proyecto cambia al instante la visibilidad de **todo** lo suyo (sus memorias, sus capturas pendientes, sus sesiones): no hay nada que migrar.
+- **El proyecto de una memoria, sesión o captura se lee de sus subjects** (el primer `Proyectos/<n>`, §4.1) o, si todavía no tiene subjects, del campo `proyecto` (sesiones, capturas recién llegadas). Lo que no cuelga de ningún proyecto es siempre público.
+- **"Todo" es solo lo público**: parado en la Biblioteca compartida (sin proyecto activo) se ve lo público de todos los proyectos, nunca lo privado de ninguno — ni a una búsqueda, ni a un grep, ni a la galería, ni al contexto de un chat de otro proyecto. Parado *en* un proyecto se ve lo suyo (privado incluido) más lo público de los demás.
+- **`proyecto=None` (MCP/CLI sin contexto) y `proyecto=""` ("Todo") son lo mismo**: solo lo público. Leer dentro de un proyecto privado por MCP/CLI exige además su **clave** (`clave_hash` en `PROYECTOS.md`, §4.1) — sin ella, error explícito, no un vacío silencioso.
+- **Por qué se dejó de sembrar en la memoria** (hasta el 2026-09-05): un campo propio evitaba que cambiar el ámbito de un proyecto revelara o escondiera retroactivamente lo ya guardado, pero costaba una casilla de ficha ("Solo este proyecto") que mentía si la memoria tenía dos proyectos o ninguno, y una migración aparte para las entradas viejas. El modelo de un solo campo de verdad (§4.1: una memoria, un proyecto) es más simple y explicable, al costo de que cambiar `privado` sí afecta retroactivamente todo lo que cuelga del proyecto — decisión tomada a propósito.
 
 ## 5. Los índices (derivados, regenerables)
 
@@ -318,3 +340,4 @@ Si desarrollás algo nuevo que escribe o lee esta base, esto es lo que no se pue
 14. **Ningún automatismo escribe wikilinks.** Las sugerencias de enlace (similitud semántica) son solo lectura; el `[[wikilink]]` se escribe únicamente con confirmación explícita del usuario, como línea fechada en el registro histórico.
 15. **El LLM propone, el usuario confirma, el Markdown recién ahí cambia.** Ningún hallazgo de un modelo (contradicción, dato obsoleto, concepto faltante) toca una memoria por su cuenta: queda como aviso en `avisos_semanticos.json` hasta que el usuario lo acepta o lo descarta. Mismo criterio que §14, y por la misma razón que §3: un falso positivo anexado solo sería historia imborrable.
 16. **Las páginas de síntesis son derivadas, no fuentes** (§3.5). Se regeneran sobre sí mismas, nunca alimentan a otra síntesis, y ningún pase automático crea una que el usuario no haya pedido.
+17. **Lo de un proyecto privado no sale de él** (§4.3). Vale para entradas, capturas y sesiones, y en todos los caminos de lectura: búsqueda, grep, página, galería, grafo, índices y MCP/CLI (que además exigen la clave del proyecto). El `privado` del proyecto es la única señal — ninguna memoria, sesión o captura tiene un campo de visibilidad propio.

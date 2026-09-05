@@ -29,12 +29,12 @@ async def lifespan(_app):
     # Solo cuando el server corre de verdad: importar mem.api (tests, CLI) no
     # tiene por qué levantar hilos que sondean servicios locales.
     servicios.vigilar_ocioso(cfg)
-    # lo privado pasó a ser un campo de la memoria; las que ya existían lo
-    # heredaban del proyecto y se quedarían sin marca. Idempotente y barata.
+    # una memoria vive en UN proyecto (pedido 2026-09-05); las que quedaron con
+    # dos de cuando eso no regía se recortan al primero. Idempotente y barata.
     try:
-        memoria.migrar_privadas(cfg["hamuq"])
+        memoria.migrar_un_proyecto(cfg["hamuq"])
     except Exception as e:                          # noqa: BLE001
-        memoria.log_evento(cfg["hamuq"], "privado", f"migración no corrió: {e}")
+        memoria.log_evento(cfg["hamuq"], "proyectos", f"migración no corrió: {e}")
     yield
 
 
@@ -61,14 +61,15 @@ def auth(authorization: str | None = Header(default=None)):
 def parado_en(x_proyecto: str | None = Header(default=None)) -> str | None:
     """Desde qué proyecto se hace esta consulta (pedido 2026-08-12). Lo manda la
     app en TODAS sus llamadas (api.js lo pone en las cabeceras, así que ninguna
-    pantalla tiene que acordarse) y decide una sola cosa: lo privado de otro
-    proyecto no se ve. Cabecera y no query param porque no es un filtro de la
-    consulta, es el contexto de quien pregunta — y así vale igual para las 8
-    lecturas que lo necesitan.
+    pantalla tiene que acordarse) y decide una sola cosa: lo de un proyecto
+    privado ajeno no se ve. Cabecera y no query param porque no es un filtro de
+    la consulta, es el contexto de quien pregunta — y así vale igual para todas
+    las lecturas que lo necesitan.
 
-    Ausente = no está parado en ninguno (MCP, curl, un shell viejo cacheado):
-    memoria.accesible no filtra. `X-Proyecto: -` es "Sin proyecto", que SÍ es un
-    proyecto: una cabecera vacía no viaja distinto de una ausente."""
+    Ausente (MCP, curl, un shell viejo cacheado) y `X-Proyecto: -` ("Todo", la
+    Biblioteca compartida) son LO MISMO para memoria.accesible: solo lo público
+    (pedido 2026-09-05). El endpoint MCP por HTTP y el CLI validan una clave
+    aparte para entrar a un proyecto privado sin esta cabecera."""
     if x_proyecto is None:
         return None
     return "" if x_proyecto.strip() == "-" else x_proyecto.strip()
@@ -135,7 +136,6 @@ class EntradaPatch(BaseModel):
     subjects: list[str] | None = None
     nota: str = ""
     resumen: str | None = None
-    privada: bool | None = None    # la casilla de la ficha (None = no se tocó)
 
 
 class EntradaIn(BaseModel):
@@ -179,12 +179,13 @@ class TriajeIn(BaseModel):
 
 class ProyectoIn(BaseModel):
     nombre: str
-    ambito: str = "personal"      # personal | trabajo | privado
+    privado: bool = False
 
 
 class ProyectoRen(BaseModel):
-    nombre: str                   # el nombre nuevo
-    fusionar: bool = False        # ese nombre ya existe y es a propósito: unirlos
+    nombre: str = ""               # el nombre nuevo (vacío = no renombrar)
+    fusionar: bool = False         # ese nombre ya existe y es a propósito: unirlos
+    privado: bool | None = None    # None = no tocar
 
 
 class ReprocesarIn(BaseModel):
@@ -856,30 +857,50 @@ def post_synthesize(s: SintesisIn):
 
 @app.get("/projects", dependencies=[Depends(auth)])
 def get_projects():
-    return memoria.proyectos_listar(cfg["hamuq"])
+    return [{**p, "clave": bool(p.pop("clave_hash", None))} for p in memoria.proyectos_listar(cfg["hamuq"])]
 
 
 @app.post("/projects", status_code=201, dependencies=[Depends(auth)])
 def post_project(p: ProyectoIn):
     try:
-        return memoria.proyecto_guardar(cfg["hamuq"], p.nombre, p.ambito)
+        return memoria.proyecto_guardar(cfg["hamuq"], p.nombre, p.privado)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@app.post("/projects/{nombre}/clave", dependencies=[Depends(auth)])
+def post_project_clave(nombre: str):
+    """Clave para leer este proyecto por MCP/CLI sin estar parado en él. Se
+    muestra una vez acá; "Regenerar" desde Gestionar invalida la anterior."""
+    try:
+        return {"clave": memoria.proyecto_clave(cfg["hamuq"], nombre)}
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
 
 
 @app.patch("/projects/{nombre}", dependencies=[Depends(auth)])
 def patch_project(nombre: str, p: ProyectoRen):
-    """Renombrar: mueve el subject en las memorias y el campo en las sesiones.
-    `fusionar` = el nombre nuevo ya existe a propósito: unir los dos proyectos."""
-    sids = sesiones.de_proyecto(cfg["hamuq"], nombre)
-    try:
-        out = memoria.proyecto_renombrar(cfg["hamuq"], nombre, p.nombre, p.fusionar)
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    for sid in sids:
-        sesiones.actualizar_meta(cfg["hamuq"], sid, proyecto=out["nombre"])
+    """Renombrar/unir (si `nombre` viene) y/o cambiar `privado` — las dos cosas
+    son independientes, cada una solo actúa si se pidió."""
+    out = None
+    if p.nombre and p.nombre != nombre:
+        sids = sesiones.de_proyecto(cfg["hamuq"], nombre)
+        try:
+            out = memoria.proyecto_renombrar(cfg["hamuq"], nombre, p.nombre, p.fusionar)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        for sid in sids:
+            sesiones.actualizar_meta(cfg["hamuq"], sid, proyecto=out["nombre"])
+        nombre = out["nombre"]
+    if p.privado is not None:
+        try:
+            out = memoria.proyecto_guardar(cfg["hamuq"], nombre, p.privado)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    if out is None:
+        raise HTTPException(400, "nada que cambiar: mandá nombre o privado")
     return out
 
 
@@ -1010,7 +1031,7 @@ def get_entry(slug: str, proyecto: str | None = Depends(parado_en)):
     except FileNotFoundError:
         raise HTTPException(404, "entrada no encontrada")
     # la ficha es la puerta final: si no se puede ver desde acá, tampoco por link
-    if not memoria.accesible(entrada, proyecto):
+    if not memoria.accesible(entrada, proyecto, memoria.privados(cfg["hamuq"])):
         raise HTTPException(403, "memoria privada: solo se abre desde su propio proyecto")
     entrada["conexiones"] = memoria.conexiones(cfg["hamuq"], slug, proyecto=proyecto)
     return entrada
@@ -1020,8 +1041,7 @@ def get_entry(slug: str, proyecto: str | None = Depends(parado_en)):
 def patch_entry(slug: str, e: EntradaPatch):
     try:
         return {"resultado": memoria.editar_entrada(cfg["hamuq"], slug, e.titulo, e.tags,
-                                                    e.subjects, e.nota, resumen=e.resumen,
-                                                    privada=e.privada)}
+                                                    e.subjects, e.nota, resumen=e.resumen)}
     except FileNotFoundError:
         raise HTTPException(404, "entrada no encontrada")
 

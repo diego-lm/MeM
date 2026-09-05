@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -98,6 +99,19 @@ def reiniciar(icono, _):
     icono.notify("Servidor reiniciado", "MeM")
 
 
+def vigilar():
+    # ponytail: al arrancar Windows, Hyper-V/WinNAT puede tener reservado el 8765 un
+    # rato (el rango dinamico de puertos arranca en 1024): uvicorn muere con WinError
+    # 10013 y el icono quedaba vivo sin servidor (visto 2026-09-04). Reintenta cada
+    # 10 s durante 5 min; despues queda "Reiniciar" del menu. Fix definitivo: reservar
+    # el puerto con netsh (MANUAL.md, Solucion de problemas).
+    for _ in range(30):
+        time.sleep(10)
+        if escuchando():
+            return
+        arrancar()
+
+
 def salir(icono, _):
     parar()
     icono.stop()
@@ -108,4 +122,5 @@ tray = pystray.Icon("MeM", Image.open(ICONO), "MeM", pystray.Menu(
     pystray.MenuItem("Reiniciar", reiniciar),
     pystray.MenuItem("Salir", salir)))
 arrancar()
+threading.Thread(target=vigilar, daemon=True).start()
 tray.run()

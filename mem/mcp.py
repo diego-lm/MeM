@@ -20,18 +20,27 @@ MAX_IMG = 2_000_000         # imágenes generadas: no incrustar más de ~2 MB
 MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".webp": "image/webp", ".gif": "image/gif"}
 
+# Estos 5 leen memoria: sin `proyecto` solo ven lo público (Todo). Con `proyecto`
+# de uno privado hace falta además `clave` (la que se genera en Gestionar) —
+# salvo que MEM_CLAVES ya la traiga puesta (stdio, Desktop/Code).
+_PROY_CLAVE = {
+    "proyecto": {"type": "string", "description": "ver solo lo público (default) o además este proyecto"},
+    "clave": {"type": "string", "description": "clave del proyecto, si es privado y no viene por MEM_CLAVES"}}
+
 _MEM = [
     {"name": "buscar",
      "description": ("Busca términos en los índices de la memoria personal de Diego (app MeM: "
                      "base de conocimiento en Markdown con sus notas, entradas y capturas). "
                      "Devuelve líneas candidatas con su archivo. Usar SIEMPRE antes de leer páginas."),
-     "parameters": {"type": "object", "properties": {"consulta": {"type": "string"}}, "required": ["consulta"]}},
+     "parameters": {"type": "object", "properties": {"consulta": {"type": "string"}, **_PROY_CLAVE},
+                    "required": ["consulta"]}},
     {"name": "leer_pagina",
      "description": ("Lee una página de la memoria por su ruta relativa (ej. "
                      "06_Biblioteca_Conocimiento/Entradas/x.md). Las páginas largas vienen en "
                      "partes: el final avisa y se sigue con parte=2, 3…"),
      "parameters": {"type": "object", "properties": {"path": {"type": "string"},
-                    "parte": {"type": "integer", "description": "para páginas largas; default 1"}},
+                    "parte": {"type": "integer", "description": "para páginas largas; default 1"},
+                    **_PROY_CLAVE},
                     "required": ["path"]}},
     {"name": "conexiones",
      "description": ("Conexiones de una entrada de la memoria (slug de buscar_memorias o de la ruta "
@@ -39,10 +48,12 @@ _MEM = [
                      "[[wikilinks]] en ambos sentidos y relacionadas por similitud semántica (con "
                      "score). Úsala después de buscar/buscar_memorias/leer_pagina para navegar el "
                      "vecindario de una memoria y traer contexto que la búsqueda no encontró."),
-     "parameters": {"type": "object", "properties": {"slug": {"type": "string"}}, "required": ["slug"]}},
+     "parameters": {"type": "object", "properties": {"slug": {"type": "string"}, **_PROY_CLAVE},
+                    "required": ["slug"]}},
     {"name": "grep",
      "description": "Busca un patrón (texto o regex) en todos los .md de la memoria. Fallback cuando los índices no dan resultado.",
-     "parameters": {"type": "object", "properties": {"patron": {"type": "string"}}, "required": ["patron"]}},
+     "parameters": {"type": "object", "properties": {"patron": {"type": "string"}, **_PROY_CLAVE},
+                    "required": ["patron"]}},
     {"name": "buscar_memorias",
      "description": ("Búsqueda estructurada sobre las entradas de la memoria: texto libre y/o filtros "
                      "por tag, subject (prefijo: 'Tecnologia/IA' incluye subniveles), fechas YYYY-MM-DD "
@@ -52,7 +63,7 @@ _MEM = [
          "texto": {"type": "string"}, "tag": {"type": "string"}, "subject": {"type": "string"},
          "desde": {"type": "string", "description": "YYYY-MM-DD"},
          "hasta": {"type": "string", "description": "YYYY-MM-DD"},
-         "lugar": {"type": "string"}}}},
+         "lugar": {"type": "string"}, **_PROY_CLAVE}}},
     {"name": "arbol_subjects",
      "description": ("Árbol de categorías (subjects) de la memoria con conteo de entradas. Consúltalo "
                      "antes de guardar_entrada para usar subjects existentes en vez de inventar nuevos."),
@@ -137,27 +148,46 @@ def _url(cfg: dict, destino: str) -> str:
     return f"\n\nAbrir en el browser: {base}/{destino}" if base and destino else ""
 
 
-def _llamar(cfg: dict, nombre: str, args: dict) -> list[dict]:
+def _desde(root: Path, proyecto: str, clave: str, claves: dict) -> str | None:
+    """Resuelve y valida el `proyecto` que pidió la tool. Sin proyecto -> None
+    (solo lo público). Uno privado exige `clave` válida (la del llamado, o si
+    no la trae, la de MEM_CLAVES) — si no, ValueError con mensaje para el modelo."""
+    proyecto = str(proyecto or "").strip()
+    if not proyecto:
+        return None
+    p = memoria.proyecto_por_nombre(root, proyecto)
+    if not p:
+        raise ValueError(f"proyecto desconocido: {proyecto}")
+    clave = str(clave or "") or claves.get(p["nombre"], "")
+    if not memoria.clave_valida(root, p["nombre"], clave):
+        raise ValueError(f"proyecto privado: hace falta la clave de {p['nombre']}")
+    return p["nombre"]
+
+
+def _llamar(cfg: dict, nombre: str, args: dict, claves: dict) -> list[dict]:
     """Ejecuta la tool y devuelve los bloques `content` de MCP."""
     root = cfg["hamuq"]
+    if nombre in ("buscar", "leer_pagina", "conexiones", "grep", "buscar_memorias"):
+        desde = _desde(root, str(args.get("proyecto") or ""), str(args.get("clave") or ""), claves)
     if nombre == "buscar":
-        texto = memoria.buscar(root, str(args.get("consulta") or ""))
+        texto = memoria.buscar(root, str(args.get("consulta") or ""), proyecto=desde)
     elif nombre == "leer_pagina":
         path = str(args.get("path") or "")
-        texto = memoria.leer_pagina(root, path, int(args.get("parte") or 1))
+        texto = memoria.leer_pagina(root, path, int(args.get("parte") or 1), proyecto=desde)
         adj = RX_ATTACH.search(texto)                                    # foto, video, pdf
         ent = re.search(r"Entradas/([^/\\]+)\.md$", path.replace("\\", "/"))
         texto += _url(cfg, _visor(root, adj.group(1)) if adj else
                            f"#entry/{ent.group(1)}" if ent else "")
     elif nombre == "conexiones":
         slug = str(args.get("slug") or "")
-        texto = json.dumps(memoria.conexiones(root, slug), ensure_ascii=False)
+        texto = json.dumps(memoria.conexiones(root, slug, proyecto=desde), ensure_ascii=False)
         texto += _url(cfg, f"#entry/{slug}")
     elif nombre == "grep":
-        texto = memoria.grep(root, str(args.get("patron") or ""))
+        texto = memoria.grep(root, str(args.get("patron") or ""), proyecto=desde)
     elif nombre == "buscar_memorias":
-        res = memoria.buscar_memorias(root, **{k: str(args.get(k) or "")
-                                               for k in ("texto", "tag", "subject", "desde", "hasta", "lugar")})
+        res = memoria.buscar_memorias(root, proyecto=desde,
+                                      **{k: str(args.get(k) or "")
+                                         for k in ("texto", "tag", "subject", "desde", "hasta", "lugar")})
         vista = [{k: e[k] for k in ("slug", "titulo", "fecha", "cuando", "lugar",
                                     "subjects", "tags", "adjunto", "resumen")} for e in res[:MAX_LISTA]]
         nota = f"\n({len(res)} resultados; muestro {MAX_LISTA}, afina los filtros)" if len(res) > MAX_LISTA else ""
@@ -165,7 +195,12 @@ def _llamar(cfg: dict, nombre: str, args: dict) -> list[dict]:
         nota += f"\nCada ficha se abre en el browser: {base}/#entry/<slug>" if base and vista else ""
         texto = json.dumps(vista, ensure_ascii=False) + nota
     elif nombre == "arbol_subjects":
-        texto = json.dumps(memoria.arbol_subjects(root), ensure_ascii=False)
+        arbol = memoria.arbol_subjects(root)
+        for g in arbol:
+            if g["nombre"] == memoria.GRUPO_PROYECTOS:
+                g["hijos"] = [h for h in g["hijos"]
+                             if not (p := memoria.proyecto_por_nombre(root, h["nombre"])) or not p["privado"]]
+        texto = json.dumps(arbol, ensure_ascii=False)
     elif nombre == "guardar_entrada":
         texto = memoria.guardar_entrada(root, str(args.get("titulo") or ""), str(args.get("contenido") or ""),
                                         [str(s) for s in (args.get("subjects") or [])], origen="claude",
@@ -199,9 +234,13 @@ def _error(mid, codigo: int, mensaje: str) -> dict:
     return {"jsonrpc": "2.0", "id": mid, "error": {"code": codigo, "message": mensaje}}
 
 
-def despachar(msg: dict, cfg: dict) -> dict | None:
+def despachar(msg: dict, cfg: dict, claves: dict | None = None) -> dict | None:
     """Un mensaje JSON-RPC → su respuesta (None = notificación, no se responde).
-    Puro: lo comparten el loop stdio de main() y POST /mcp/{secreto} del API."""
+    Puro: lo comparten el loop stdio de main() y POST /mcp/{secreto} del API.
+
+    `claves` = {proyecto: clave} para no repetirla en cada llamada — la manda
+    main() desde MEM_CLAVES (stdio, Desktop/Code); el endpoint HTTP no manda
+    nada, ahí la clave va siempre en los argumentos de la tool."""
     mid, metodo = msg.get("id"), str(msg.get("method") or "")
     if mid is None:
         return None
@@ -219,7 +258,7 @@ def despachar(msg: dict, cfg: dict) -> dict | None:
         if nombre not in NOMBRES:
             return _error(mid, -32602, f"herramienta desconocida: {nombre}")
         try:
-            r = {"content": _llamar(cfg, nombre, params.get("arguments") or {})}
+            r = {"content": _llamar(cfg, nombre, params.get("arguments") or {}, claves or {})}
         except Exception as e:      # error de la tool: el modelo lo ve y se corrige
             r = {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
     else:
@@ -227,15 +266,24 @@ def despachar(msg: dict, cfg: dict) -> dict | None:
     return {"jsonrpc": "2.0", "id": mid, "result": r}
 
 
+def _claves_env() -> dict:
+    """MEM_CLAVES="Obra=xxx;Diario=yyy" del entorno: para stdio (Desktop/Code),
+    así no hay que pasar la clave en cada llamada a una tool."""
+    crudo = os.environ.get("MEM_CLAVES", "")
+    pares = (p.split("=", 1) for p in crudo.split(";") if "=" in p)
+    return {k.strip(): v.strip() for k, v in pares if k.strip()}
+
+
 def main() -> None:
     sys.stdin.reconfigure(encoding="utf-8", errors="replace")
     sys.stdout.reconfigure(encoding="utf-8", newline="\n")   # cp1252 rompe al primer acento
     cfg = config.cargar()
+    claves = _claves_env()
     for linea in sys.stdin:
         if not linea.strip():
             continue
         try:
-            resp = despachar(json.loads(linea), cfg)
+            resp = despachar(json.loads(linea), cfg, claves)
         except Exception as e:                  # JSON roto o bug: no matar el server
             print(f"mem.mcp: {type(e).__name__}: {e}", file=sys.stderr)
             continue

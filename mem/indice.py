@@ -369,7 +369,7 @@ def sugerencias(root: Path, texto: str, k: int = 4, proyecto: str | None = None)
     a la vez —match léxico (BM25) y z ≥ UMBRAL_SUGERENCIA sobre la base, esta
     última recién a partir de MIN_BASE_Z memorias—, así que un borrador sin nada
     que ver devuelve [] en vez de rellenar con vecinos lejanos.
-    Devuelve [{slug, titulo, privada, z}] de más a menos cercana."""
+    Devuelve [{slug, titulo, z}] de más a menos cercana."""
     if len((texto or "").strip()) < 12 or (con := abrir(root)) is None:
         return []
     try:
@@ -391,23 +391,23 @@ def sugerencias(root: Path, texto: str, k: int = 4, proyecto: str | None = None)
         titulos = dict(con.execute("SELECT slug, titulo FROM entradas"))
         minimo = UMBRAL_SUGERENCIA if len(slugs) >= MIN_BASE_Z else -9.0
         cerca = sorted((x for x in fts if x in z and z[x] >= minimo), key=lambda s: -z[s])[:k]
-        # `privada` no está en el índice (es del frontmatter): con ≤ k archivos
-        # sale más barato leerlos que arrastrar una columna y migrar el esquema.
-        # De paso sale el filtro por proyecto: sugerir el TÍTULO de una memoria
-        # privada de otro proyecto ya sería mostrarla.
+        # el proyecto no está en el índice (es del frontmatter, vía subjects): con
+        # ≤ k archivos sale más barato leerlos que arrastrar una columna. De paso
+        # sale el filtro por proyecto: sugerir el TÍTULO de una memoria de otro
+        # proyecto privado ya sería mostrarla.
+        privs = memoria.privados(root)
         fichas = [(s, _meta_entrada(root, s)) for s in cerca]
-        return [{"slug": s, "titulo": titulos.get(s, s), "z": round(z[s], 2),
-                 "privada": bool(m.get("privada"))}
-                for s, m in fichas if memoria.accesible(m, proyecto)]
+        return [{"slug": s, "titulo": titulos.get(s, s), "z": round(z[s], 2)}
+                for s, m in fichas if m is not None and memoria.accesible(m, proyecto, privs)]
     finally:
         con.close()
 
 
-def _meta_entrada(root: Path, slug: str) -> dict:
+def _meta_entrada(root: Path, slug: str) -> dict | None:
     try:
         return frontmatter.load(root / memoria.ENTRADAS / f"{slug}.md").metadata
     except Exception:
-        return {"privada": True}    # ante la duda, privada: el candado no se abre solo
+        return None    # ante la duda, oculta: el candado no se abre solo
 
 
 def duplicados(root: Path, umbral: float = UMBRAL_DUPLICADOS) -> list[tuple[str, str, float]]:
@@ -514,8 +514,8 @@ def grafo(root: Path, slugs: list[str] | None = None, proyecto: str | None = Non
         sincronizar(root, con)
         filas = con.execute(
             "SELECT slug, titulo, subjects, lugar, tags FROM entradas ORDER BY slug").fetchall()
-        # el índice no guarda `privada`: el filtro por proyecto se aplica acá,
-        # antes de contar ejes — un nodo privado de otro proyecto no existe
+        # el índice no sabe de proyectos privados: el filtro se aplica acá,
+        # antes de contar ejes — un nodo de un proyecto privado ajeno no existe
         if oc := memoria.entradas_ocultas(root, proyecto):
             filas = [f for f in filas if f[0] not in oc]
         nodos, aristas, vistos = [], [], set()

@@ -5,6 +5,8 @@ y el procesador nocturno. Todo se persiste como Markdown con frontmatter YAML
 para que cualquier agente (Hermes, Claude, LM Studio) entienda la memoria sin
 este código. Nada se borra destructivamente: papelera y registros fechados.
 """
+import hashlib
+import hmac
 import re
 import secrets
 import unicodedata
@@ -304,38 +306,47 @@ def proyectos_de(subjects: list[str] | None) -> list[str]:
             if (m := re.match(rf"{GRUPO_PROYECTOS}/([^/]+)", str(s)))]
 
 
-def _privados(root: Path) -> set[str]:
-    return {_norm(p["nombre"]) for p in proyectos_listar(root) if p["ambito"] == "privado"}
+def privados(root: Path) -> set[str]:
+    """Proyectos marcados `privado: true`, normalizados. Lo que cuelga de uno de
+    estos solo se ve parado en él (o con su clave, para MCP/CLI)."""
+    return {_norm(p["nombre"]) for p in proyectos_listar(root) if p["privado"]}
 
 
-def hereda_privado(root: Path, subjects: list[str] | None) -> bool:
-    """¿Nace privado lo que se guarda bajo estos subjects? (pedido 2026-08-08)
+def proyecto_de(meta: dict) -> str:
+    """El proyecto de una memoria, sesión o captura: el primero de sus
+    `Proyectos/<n>` (una memoria vive en un solo proyecto — guardar_entrada y
+    editar_entrada lo garantizan al escribir), o el campo `proyecto` si todavía
+    no hay subjects (sesiones, capturas recién llegadas)."""
+    return next(iter(proyectos_de(meta.get("subjects"))), "") or str(meta.get("proyecto") or "")
 
-    Lo privado dejó de ser una propiedad del proyecto que se leía en cada
-    consulta: es un campo PROPIO de la memoria (`privada`), y esto lo resuelve
-    UNA sola vez, al crearla. Después, cambiarle el ámbito al proyecto ya no
-    toca a las memorias que salieron de él, y la casilla de la ficha manda.
+
+def un_proyecto(subjects: list[str] | None) -> list[str]:
+    """Una memoria vive en UN proyecto (pedido 2026-09-05): si venían subjects
+    de más de uno, se queda con el PRIMER `Proyectos/<n>` (y sus hijos) y
+    descarta los demás — con la privacidad del lado del proyecto, dos proyectos
+    en una misma memoria no tienen una respuesta que tenga sentido."""
+    subjects = list(subjects or [])
+    proys = proyectos_de(subjects)
+    if len({_norm(p) for p in proys}) <= 1:
+        return subjects
+    primero = subject_proyecto(proys[0])
+    return [s for s in subjects if not _bajo(s, GRUPO_PROYECTOS) or _bajo(s, primero)]
+
+
+def accesible(meta: dict, proyecto: str | None, privs: set[str]) -> bool:
+    """¿Se ve esta memoria, sesión o captura estando parado en `proyecto`?
+
+    Lo privado es del PROYECTO (pedido 2026-09-05), no de la memoria: un
+    proyecto privado encierra todo lo suyo; togglearlo cambia al instante la
+    visibilidad de lo que cuelga de él, sin nada que migrar.
+
+    `proyecto=None` (MCP/CLI sin contexto) y `proyecto=""` ("Todo", la
+    Biblioteca compartida) son LO MISMO: solo lo público. Leer dentro de un
+    proyecto privado exige estar parado en él — la clave para MCP/CLI la valida
+    el llamador antes de pasar `proyecto`, no esta función.
     """
-    privados = _privados(root)
-    return bool(privados) and any(_norm(n) in privados for n in proyectos_de(subjects))
-
-
-def accesible(meta: dict, proyecto: str | None) -> bool:
-    """¿Se ve esta memoria (o captura) estando parado en `proyecto`?
-
-    Regla (pedido 2026-08-12): los proyectos ordenan, no encierran — desde
-    cualquiera se llega a todo... salvo lo privado, que NO sale del suyo: ni a
-    una búsqueda, ni a la galería, ni al contexto de un chat de otro proyecto.
-
-    `proyecto=None` = quien pregunta no está parado en ninguno (MCP, CLI, un
-    shell viejo): no hay "otro proyecto" desde el cual filtrar y no se filtra.
-    "Sin proyecto" ("") ES un proyecto: una memoria privada sin proyecto se ve
-    solo desde ahí, que es donde nació.
-    """
-    if proyecto is None or not meta.get("privada"):
-        return True
-    suyos = [_norm(n) for n in proyectos_de(meta.get("subjects"))]
-    return _norm(proyecto) in suyos if suyos else not proyecto
+    p = _norm(proyecto_de(meta))
+    return not p or p not in privs or p == _norm(proyecto or "")
 
 
 def entradas_ocultas(root: Path, proyecto: str | None) -> set[str]:
@@ -344,48 +355,34 @@ def entradas_ocultas(root: Path, proyecto: str | None) -> set[str]:
     en la mano usa accesible() y no paga este barrido.
 
     ponytail: relee el frontmatter de la Biblioteca entera. Con ~10³ entradas
-    son decenas de ms; si molesta, la columna `privada` en mem.db lo mata.
+    son decenas de ms; si molesta, la columna del proyecto en mem.db lo mata.
     """
+    privs = privados(root)
     d = root / ENTRADAS
-    if proyecto is None or not d.exists():
+    if not privs or not d.exists():
         return set()
     return {p.stem for p in d.glob("*.md")
-            if not accesible(frontmatter.load(p).metadata, proyecto)}
+            if not accesible(frontmatter.load(p).metadata, proyecto, privs)}
 
 
 def paths_ocultos(root: Path, proyecto: str | None) -> set[str]:
-    """Lo mismo en rutas relativas y sumando el inbox — grep y leer_pagina
-    trabajan con rutas, y una captura pendiente de un proyecto privado es tan
-    privada como la memoria en que se va a convertir."""
+    """Lo mismo en rutas relativas, sumando el inbox y las sesiones — grep y
+    leer_pagina trabajan con rutas, y una captura pendiente o una sesión de un
+    proyecto privado son tan privadas como las memorias que salgan de ellas."""
+    privs = privados(root)
     out = {f"{ENTRADAS}/{s}.md" for s in entradas_ocultas(root, proyecto)}
-    inbox = root / "07_Inbox"
-    if proyecto is None or not inbox.exists():
+    if not privs:
         return out
-    return out | {f"07_Inbox/{p.name}" for p in inbox.glob("*.md")
-                  if not accesible(frontmatter.load(p).metadata, proyecto)}
-
-
-def migrar_privadas(root: Path) -> int:
-    """Siembra `privada` en las entradas que ya existían cuando lo privado se
-    heredaba del proyecto. Solo toca las que NO tienen el campo: una memoria que
-    Diego destildó a mano guarda `privada: false` y nunca se vuelve a marcar.
-
-    Idempotente: la segunda corrida no escribe nada. Corre al arrancar el server.
-    """
-    entradas = root / ENTRADAS
-    if not entradas.exists():
-        return 0
-    n = 0
-    for p in sorted(entradas.glob("*.md")):
-        post = frontmatter.load(p)
-        if "privada" in post.metadata or not hereda_privado(root, post.metadata.get("subjects")):
-            continue
-        post.metadata["privada"] = True   # sin tocar `actualizada`: no es una edición
-        p.write_text(frontmatter.dumps(post), encoding="utf-8")
-        n += 1
-    if n:
-        log_evento(root, "privado", f"{n} memoria(s) marcadas privadas (heredado del proyecto)")
-    return n
+    inbox = root / "07_Inbox"
+    if inbox.exists():
+        out |= {f"07_Inbox/{p.name}" for p in inbox.glob("*.md")
+                if not accesible(frontmatter.load(p).metadata, proyecto, privs)}
+    sesiones = root / "10_Sesiones"
+    if sesiones.exists():
+        for p in [*sesiones.glob("*.md"), *sesiones.glob("_archivo/*/*.md")]:
+            if not accesible(frontmatter.load(p).metadata, proyecto, privs):
+                out.add(p.relative_to(root).as_posix())
+    return out
 
 
 def capturar(root: Path, contenido: str, tipo: str = "nota", contexto: str = "",
@@ -409,9 +406,8 @@ def capturar(root: Path, contenido: str, tipo: str = "nota", contexto: str = "",
 
     `capturado`/`extra` los usa el import de un backup (exportar.py): la memoria
     vuelve con SU fecha, no con la de hoy, y con los campos que traía (`fijado`,
-    `privada`, `id_origen`). Sin el `fijado` original, los tags que en su momento
-    puso el LLM entrarían como fijados y congelarían una clasificación que nadie
-    eligió.
+    `id_origen`). Sin el `fijado` original, los tags que en su momento puso el
+    LLM entrarían como fijados y congelarían una clasificación que nadie eligió.
     """
     ahora = datetime.fromisoformat(capturado).astimezone() if capturado else datetime.now().astimezone()
     carpeta = root / "07_Inbox"
@@ -426,9 +422,9 @@ def capturar(root: Path, contenido: str, tipo: str = "nota", contexto: str = "",
         iid = f"{base}-{n}"
     # el subject del proyecto se suma DESPUÉS de calcular `fijado`: fijarlo
     # congelaría también la clasificación que el procesador todavía no hizo.
-    subs = list(subjects or [])
-    if proyecto:
-        subs = list(dict.fromkeys([*subs, subject_proyecto(proyecto)]))
+    # un_proyecto: si `proyecto` viene puesto, gana el suyo sobre cualquier otro
+    # que trajeran los subjects (una memoria vive en un solo proyecto).
+    subs = un_proyecto([subject_proyecto(proyecto), *(subjects or [])] if proyecto else subjects)
     post = frontmatter.Post(
         contenido.strip() + "\n", id=iid,
         capturado=ahora.isoformat(timespec="seconds"), tipo=tipo, origen=origen,
@@ -439,9 +435,6 @@ def capturar(root: Path, contenido: str, tipo: str = "nota", contexto: str = "",
         # solo si el browser dio permiso: la clave no existe cuando no hay geo
         **({"coords_captura": coords} if coords else {}),
         **({"proyecto": proyecto} if proyecto else {}),
-        # capturado desde un proyecto privado → el item ya nace privado y no se
-        # muestra en el celu sin verificar, todavía sin procesar
-        **({"privada": True} if hereda_privado(root, subs) else {}),
     )
     if extra:
         post.metadata.update(extra)
@@ -595,6 +588,11 @@ def sincronizar_sesion_inbox(root: Path, sid: str, contenido: str, subjects: lis
     que Diego tipeó a mano — el procesador lo puede reclasificar como a
     cualquier captura. Si Diego SÍ lo editó desde el Inbox (inbox_editar fija
     "subjects"), esta función deja ese campo en paz.
+
+    El destilado HEREDA el proyecto de la sesión (pedido 2026-09-05): si ese
+    proyecto es privado, accesible() lo tapa igual que a cualquier otra memoria
+    suya, porque lee el subject/campo `proyecto`, no una marca aparte. Si es
+    público, el destilado nace público — sin destildar nada a mano.
     """
     ahora = datetime.now().astimezone().isoformat(timespec="seconds")
     carpeta = root / "07_Inbox"
@@ -606,10 +604,7 @@ def sincronizar_sesion_inbox(root: Path, sid: str, contenido: str, subjects: lis
         if procesado.is_file():
             procesado.rename(p)
 
-    subjects = list(subjects or [])
-    if proyecto:
-        subjects = list(dict.fromkeys([*subjects, subject_proyecto(proyecto)]))
-    privada = hereda_privado(root, subjects)
+    subjects = un_proyecto([subject_proyecto(proyecto), *(subjects or [])] if proyecto else subjects)
 
     if p.is_file():
         post = frontmatter.load(p)
@@ -618,8 +613,6 @@ def sincronizar_sesion_inbox(root: Path, sid: str, contenido: str, subjects: lis
         post.metadata.pop("error", None)
         if "subjects" not in set(post.metadata.get("fijado") or []):
             post.metadata["subjects"] = subjects
-        if privada and not post.metadata.get("privada"):
-            post.metadata["privada"] = True
         p.write_text(frontmatter.dumps(post), encoding="utf-8")
         return f"07_Inbox/{iid}.md"
 
@@ -627,7 +620,6 @@ def sincronizar_sesion_inbox(root: Path, sid: str, contenido: str, subjects: lis
         contenido.strip() + "\n", id=iid, sesion=sid, proyecto=proyecto, capturado=ahora,
         tipo="sesion", origen="chat", adjunto="", contexto_usuario="",
         tags=[], subjects=subjects, fijado=[], estado="pendiente",
-        **({"privada": True} if privada else {}),
     )
     p.write_text(frontmatter.dumps(post), encoding="utf-8")
     return f"07_Inbox/{iid}.md"
@@ -696,7 +688,7 @@ def _indice_hook(root: Path) -> None:
 def guardar_entrada(root: Path, titulo: str, contenido: str, subjects: list[str],
                     origen: str = "chat", tags: list[str] | None = None, adjunto: str = "",
                     meta: dict | None = None, slug: str = "", transcripcion: str = "",
-                    reemplazar: bool = False, privada: bool | None = None) -> str:
+                    reemplazar: bool = False) -> str:
     """Crea o actualiza una entrada de la Biblioteca y sus índices. Dedupe por slug.
 
     `meta` = metadatos extraídos al procesar (lugar, cuando, enlaces, capturado…);
@@ -715,12 +707,12 @@ def guardar_entrada(root: Path, titulo: str, contenido: str, subjects: list[str]
     `reemplazar` (reproceso): el título y el resumen nuevos pisan a los viejos.
     El registro histórico nunca se toca — eso es historia.
 
-    `privada` (None = deducir del proyecto de sus subjects) se escribe SOLO al
-    crear: es un campo propio de la memoria y a partir de ahí lo manda la
-    casilla de la ficha, no el ámbito del proyecto.
+    `subjects` se queda con UN solo proyecto (un_proyecto): si venían con más
+    de un `Proyectos/<n>`, gana el primero — la privacidad es del proyecto, y
+    una memoria en dos a la vez no tiene una respuesta que tenga sentido.
     """
     hoy = date.today().isoformat()
-    subjects = normalizar_subjects(subjects)
+    subjects = un_proyecto(normalizar_subjects(subjects))
     slug = slug or slugificar(titulo)
     entradas = root / ENTRADAS
     entradas.mkdir(parents=True, exist_ok=True)
@@ -730,10 +722,6 @@ def guardar_entrada(root: Path, titulo: str, contenido: str, subjects: list[str]
         post = frontmatter.load(p)
         _versionar(root, p, post)   # todo lo que sigue toca el cuerpo: la anterior queda guardada
         post.metadata["actualizada"] = hoy
-        # una captura privada que se suma a una entrada ya existente la vuelve
-        # privada; al revés no: destildar es una decisión del usuario y se respeta
-        if privada and not post.metadata.get("privada"):
-            post.metadata["privada"] = True
         if tags:
             post.metadata["tags"] = list(dict.fromkeys(list(post.metadata.get("tags") or []) + list(tags)))
         for k, v in extra.items():
@@ -742,10 +730,13 @@ def guardar_entrada(root: Path, titulo: str, contenido: str, subjects: list[str]
                 post.metadata[k] = list(dict.fromkeys([*(previo or []), *v]))
             elif not previo:
                 post.metadata[k] = v
-        # una entrada que crece hacia otro tema se reindexa bajo el subject nuevo
+        # una entrada que crece hacia otro tema se reindexa bajo el subject nuevo;
+        # un_proyecto descarta el que no ganó si el nuevo trajera otro proyecto
         nuevos = [s for s in subjects if s not in (post.metadata.get("subjects") or [])]
         if nuevos:
-            post.metadata["subjects"] = list(post.metadata.get("subjects") or []) + nuevos
+            fusion = un_proyecto(list(post.metadata.get("subjects") or []) + nuevos)
+            nuevos = [s for s in nuevos if s in fusion]
+            post.metadata["subjects"] = fusion
         if reemplazar:
             previo = str(post.metadata.get("titulo") or slug)
             previos_subj = list(post.metadata.get("subjects") or [])
@@ -780,11 +771,9 @@ def guardar_entrada(root: Path, titulo: str, contenido: str, subjects: list[str]
         f"{adj_txt}"
         f"{CAB_REGISTRO}\n\n**{hoy}** ({origen}) — entrada creada.\n"
     )
-    priv = hereda_privado(root, subjects) if privada is None else bool(privada)
     post = frontmatter.Post(cuerpo, titulo=titulo, creada=hoy, actualizada=hoy,
                             subjects=list(subjects), tags=list(tags or []), origen=origen,
-                            adjunto=adjunto, id=nuevo_id(), version=1, **extra,
-                            **({"privada": True} if priv else {}))
+                            adjunto=adjunto, id=nuevo_id(), version=1, **extra)
     p.write_text(frontmatter.dumps(post), encoding="utf-8")
     _indexar_tematico(root, titulo, slug, subjects, hoy)
     _indexar_categorias(root, titulo, slug, subjects)
@@ -1070,6 +1059,7 @@ def buscar_memorias(root: Path, texto: str = "", tag: str = "", subject: str = "
     entradas = root / ENTRADAS
     if not entradas.exists():
         return out
+    privs = privados(root)
     for p in sorted(entradas.glob("*.md"), reverse=True):
         post = frontmatter.load(p)
         m = post.metadata
@@ -1086,7 +1076,7 @@ def buscar_memorias(root: Path, texto: str = "", tag: str = "", subject: str = "
             continue  # match por prefijo de path: "Tecnologia/IA" encuentra "Tecnologia/IA/LLMs"
         if sin_proyecto and any(_bajo(s, GRUPO_PROYECTOS) for s in (m.get("subjects") or [])):
             continue
-        if not accesible(m, proyecto):
+        if not accesible(m, proyecto, privs):
             continue
         if lugar and _norm(lugar) not in _norm(str(m.get("lugar", ""))):
             continue
@@ -1110,8 +1100,6 @@ def buscar_memorias(root: Path, texto: str = "", tag: str = "", subject: str = "
                     "subjects": normalizar_subjects(m.get("subjects")), "tags": m.get("tags") or [],
                     "enlaces": m.get("enlaces") or [], "adjunto": m.get("adjunto", ""),
                     "pendiente": m.get("pendiente") or [],
-                    # candado: lo decide la memoria, no el proyecto (pedido 2026-08-08)
-                    "privada": bool(m.get("privada")),
                     # de qué sesión nació: la app la filtra por tipo y linkea de vuelta
                     "sesion": str(m.get("sesion") or ""),
                     "resumen": resumen_corto(post.content)})
@@ -1132,21 +1120,19 @@ def medios_todos(root: Path, *, texto: str = "", desde: str = "", hasta: str = "
     Media Manager (armado sobre ella) nunca mostraba lo recién subido a un chat
     — reportado 2026-08-10: un video vivía en la sesión, no en ninguna ficha.
 
-    Cada item: {ruta, titulo, slug, sesion, ts, privada, subjects}. `slug` vacío =
+    Cada item: {ruta, titulo, slug, sesion, ts, subjects}. `slug` vacío =
     todavía no es una memoria propia — la app linkea a la sesión (go("chat",
-    sesion)), no a una ficha que no existe. Los dos últimos son lo que el candado
-    del celular necesita para tapar el medio de una memoria privada sin abrirla
-    (pedido 2026-08-23): son los MISMOS campos que trae una memoria, así que la
-    app usa el mismo criterio y no inventa uno para la galería.
+    sesion)), no a una ficha que no existe. `subjects` es lo que el candado del
+    celular necesita para tapar el medio de un proyecto privado sin abrirlo
+    (pedido 2026-08-23): el MISMO campo que trae una memoria, así que la app usa
+    el mismo criterio (esMemoriaPrivada) y no inventa uno para la galería.
     """
     root = Path(root)
     catalogadas = buscar_memorias(root, texto=texto, desde=desde, hasta=hasta, sesion=sesion,
                                   subject=subject, proyecto=proyecto)
-    # los sueltos no tienen ficha: su privacidad es la del proyecto de la sesión dueña
-    privados = _privados(root) if proyecto is not None else set()
+    privs = privados(root)
     out = [{"ruta": e["adjunto"], "titulo": e["titulo"], "slug": e["slug"],
-            "sesion": e["sesion"], "ts": e["ts"],
-            "privada": e["privada"], "subjects": e["subjects"]}
+            "sesion": e["sesion"], "ts": e["ts"], "subjects": e["subjects"]}
            for e in catalogadas if e["adjunto"] and e["adjunto"].lower().endswith(MEDIA_EXT)]
     vistas = {it["ruta"] for it in out}
     q = _norm(texto)
@@ -1163,7 +1149,9 @@ def medios_todos(root: Path, *, texto: str = "", desde: str = "", hasta: str = "
         p_ses = _norm(str(ses_meta.get("proyecto") or ""))
         if subject and _norm(f"proyectos/{ses_meta.get('proyecto') or ''}") != _norm(subject):
             continue
-        if p_ses in privados and p_ses != _norm(proyecto or ""):
+        # sueltos sin ficha: su proyecto es el de la sesión dueña — misma
+        # regla que accesible(), pero a mano porque no pasan por buscar_memorias
+        if p_ses in privs and p_ses != _norm(proyecto or ""):
             continue
         ts = f.stat().st_mtime
         if desde and datetime.fromtimestamp(ts).strftime("%Y-%m-%d") < desde:
@@ -1177,7 +1165,7 @@ def medios_todos(root: Path, *, texto: str = "", desde: str = "", hasta: str = "
         # como subject para que la app lo lea igual que el de una memoria
         p_nombre = str(ses_meta.get("proyecto") or "")
         out.append({"ruta": ruta, "titulo": titulo, "slug": "", "sesion": sid, "ts": ts,
-                    "privada": False, "subjects": [f"Proyectos/{p_nombre}"] if p_nombre else []})
+                    "subjects": [f"Proyectos/{p_nombre}"] if p_nombre else []})
     out.sort(key=lambda e: e["ts"], reverse=True)
     return out
 
@@ -1191,14 +1179,17 @@ def entrada_de_adjunto(root: Path, ruta: str) -> str:
 
 def editar_entrada(root: Path, slug: str, titulo: str | None = None,
                    tags: list[str] | None = None, subjects: list[str] | None = None,
-                   nota: str = "", resumen: str | None = None,
-                   privada: bool | None = None) -> str:
+                   nota: str = "", resumen: str | None = None) -> str:
     """Edición acotada (spec §6.1): contenido, metadatos y notas; todo cambio
     queda fechado en el registro histórico, nunca se reescribe historia.
 
     Los cambios de CONTENIDO (título, resumen, nota) guardan la versión anterior
     completa. Poner o quitar un tag no: en la app es un toque de chip y llenaría
-    el historial de versiones idénticas."""
+    el historial de versiones idénticas.
+
+    `subjects`, si viene, pasa por `un_proyecto`: la entrada se queda con un
+    solo proyecto aunque el llamador mande dos — "Mover a…" es reemplazar el
+    subject del proyecto, no sumar otro."""
     p = root / ENTRADAS / f"{slug}.md"
     if not p.is_file():
         raise FileNotFoundError(f"entrada no encontrada: {slug}")
@@ -1215,18 +1206,14 @@ def editar_entrada(root: Path, slug: str, titulo: str | None = None,
     if tags is not None and list(tags) != list(post.metadata.get("tags") or []):
         post.metadata["tags"] = list(tags)
         cambios.append(f"tags → {', '.join(tags) or '(ninguno)'}")
-    if subjects is not None and list(subjects) != list(post.metadata.get("subjects") or []):
-        post.metadata["subjects"] = list(subjects)
-        _desindexar(root, slug)  # reasignar subject reindexa automáticamente
-        _indexar_tematico(root, str(post.metadata.get("titulo", slug)), slug, subjects, hoy, cronologico=False)
-        _indexar_categorias(root, str(post.metadata.get("titulo", slug)), slug, subjects)
-        cambios.append(f"subjects → {', '.join(subjects) or '(ninguno)'}")
-    # la casilla de privado. Se guarda SIEMPRE explícita (también el false): así
-    # migrar_privadas distingue "nunca se decidió" de "Diego la destildó" y no se
-    # la vuelve a marcar por el proyecto.
-    if privada is not None and bool(privada) != bool(post.metadata.get("privada")):
-        post.metadata["privada"] = bool(privada)
-        cambios.append("marcada privada" if privada else "ya no es privada")
+    if subjects is not None:
+        subjects = un_proyecto(list(subjects))
+        if subjects != list(post.metadata.get("subjects") or []):
+            post.metadata["subjects"] = subjects
+            _desindexar(root, slug)  # reasignar subject reindexa automáticamente
+            _indexar_tematico(root, str(post.metadata.get("titulo", slug)), slug, subjects, hoy, cronologico=False)
+            _indexar_categorias(root, str(post.metadata.get("titulo", slug)), slug, subjects)
+            cambios.append(f"subjects → {', '.join(subjects) or '(ninguno)'}")
     if nota:
         cambios.append(f"nota: {nota}")
         contenido = True
@@ -1283,6 +1270,32 @@ def asignar_ids(root: Path) -> int:
         post.metadata["id"] = nuevo_id()
         post.metadata["version"] = 1
         p.write_text(frontmatter.dumps(post), encoding="utf-8")
+        n += 1
+    return n
+
+
+def migrar_un_proyecto(root: Path) -> int:
+    """Migración one-shot (pedido 2026-09-05): las entradas que quedaron con dos
+    o más `Proyectos/<n>` de cuando una memoria podía vivir en varios se quedan
+    con el primero — ahora que lo privado es del proyecto, dos proyectos en una
+    misma memoria no tenían una respuesta que tuviera sentido.
+
+    Idempotente: la segunda corrida no encuentra nada que tocar. Corre al
+    arrancar el server."""
+    entradas = root / ENTRADAS
+    if not entradas.exists():
+        return 0
+    n = 0
+    for p in sorted(entradas.glob("*.md")):
+        post = frontmatter.load(p)
+        subs = list(post.metadata.get("subjects") or [])
+        recortados = un_proyecto(subs)
+        if recortados == subs:
+            continue
+        perdidos = [s for s in subs if s not in recortados]
+        post.metadata["subjects"] = recortados
+        p.write_text(frontmatter.dumps(post), encoding="utf-8")
+        log_evento(root, "proyectos", f"{p.stem}: se queda en {recortados}, salió de {perdidos}")
         n += 1
     return n
 
@@ -1360,7 +1373,6 @@ def arbol_subjects(root: Path) -> list[dict]:
 
 PROYECTOS = "08_Categorias/PROYECTOS.md"
 GRUPO_PROYECTOS = "Proyectos"
-AMBITOS = ("personal", "trabajo", "privado")
 
 
 def subject_proyecto(nombre: str) -> str:
@@ -1386,39 +1398,56 @@ def _entradas_con_subject(root: Path, sub: str) -> list[str]:
 
 
 def proyectos_listar(root: Path) -> list[dict]:
+    """Lee `ambito: privado` de archivos viejos como `privado: true` — la
+    próxima escritura ya sale en el formato nuevo, sin `ambito`."""
     p = root / PROYECTOS
     if not p.is_file():
         return []
-    return [{"nombre": str(d.get("nombre") or ""), "ambito": str(d.get("ambito") or "personal"),
-             "creado": str(d.get("creado") or "")}
-            for d in (frontmatter.load(p).metadata.get("proyectos") or [])
-            if str(d.get("nombre") or "").strip()]
+    out = []
+    for d in (frontmatter.load(p).metadata.get("proyectos") or []):
+        nombre = str(d.get("nombre") or "").strip()
+        if not nombre:
+            continue
+        out.append({"nombre": nombre,
+                    "privado": bool(d.get("privado")) or str(d.get("ambito") or "") == "privado",
+                    "clave_hash": str(d.get("clave_hash") or ""),
+                    "creado": str(d.get("creado") or "")})
+    return out
 
 
-def proyecto_guardar(root: Path, nombre: str, ambito: str = "personal") -> dict:
-    """Crea el proyecto, o le cambia el ámbito si ya existe. El archivo queda
-    legible sin el app: frontmatter para los datos, cuerpo para leerlo a ojo."""
+def proyecto_guardar(root: Path, nombre: str, privado: bool | None = None) -> dict:
+    """Crea el proyecto (nace público salvo que se pida lo contrario), o le
+    cambia `privado` si ya existe — `None` no toca nada (para no pisar el
+    estado de un proyecto existente al pasar por acá con otro fin, como
+    fijar_proyecto). El archivo queda legible sin el app: frontmatter para los
+    datos, cuerpo para leerlo a ojo."""
     nombre = " ".join(nombre.split())
     if not nombre:
         raise ValueError("el proyecto necesita un nombre")
-    if ambito not in AMBITOS:
-        raise ValueError(f"ámbito inválido: {ambito} (usar {', '.join(AMBITOS)})")
     lista = proyectos_listar(root)
     prev = next((x for x in lista if _norm(x["nombre"]) == _norm(nombre)), None)
+    nuevo = prev is None
     if prev:
-        prev["ambito"] = ambito
+        if privado is not None:
+            prev["privado"] = bool(privado)
     else:
-        lista.append({"nombre": nombre, "ambito": ambito, "creado": date.today().isoformat()})
+        prev = {"nombre": nombre, "privado": bool(privado), "clave_hash": "",
+                "creado": date.today().isoformat()}
+        lista.append(prev)
     _proyectos_escribir(root, lista)
-    log_evento(root, "proyectos", f"{'ámbito' if prev else 'proyecto nuevo'}: {nombre} ({ambito})")
-    return prev or lista[-1]
+    log_evento(root, "proyectos",
+               f"{'proyecto nuevo' if nuevo else 'privado'}: {nombre} "
+               f"({'privado' if prev['privado'] else 'público'})")
+    return prev
 
 
 def _proyectos_escribir(root: Path, lista: list[dict]) -> None:
-    """El archivo queda legible sin el app: frontmatter para los datos, cuerpo
-    para leerlo a ojo."""
+    """El archivo queda legible sin el app: frontmatter para los datos
+    (incluido el hash de la clave, que no sale en el cuerpo), cuerpo para
+    leerlo a ojo."""
     cuerpo = "# Proyectos\n\n" + "".join(
-        f"- **{x['nombre']}** — {x['ambito']} ({x['creado']})\n" for x in lista)
+        f"- **{x['nombre']}** — {'privado' if x['privado'] else 'público'} ({x['creado']})\n"
+        for x in lista)
     p = root / PROYECTOS
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(frontmatter.dumps(frontmatter.Post(cuerpo, proyectos=lista)), encoding="utf-8")
@@ -1531,6 +1560,34 @@ def proyecto_por_nombre(root: Path, nombre: str) -> dict | None:
     """El proyecto que el usuario nombró, sin exigirle tildes ni mayúsculas."""
     n = _norm(str(nombre or ""))
     return next((p for p in proyectos_listar(root) if _norm(p["nombre"]) == n), None) if n else None
+
+
+def proyecto_clave(root: Path, nombre: str) -> str:
+    """Genera una clave nueva para leer este proyecto sin estar parado en él
+    (MCP, CLI). Se guarda solo el hash — el plano se devuelve UNA vez, acá;
+    "Regenerar" en Gestionar invalida la anterior sin más trámite."""
+    p = proyecto_por_nombre(root, nombre)
+    if not p:
+        raise FileNotFoundError(f"proyecto no encontrado: {nombre}")
+    clave = secrets.token_urlsafe(24)
+    lista = proyectos_listar(root)
+    next(x for x in lista if _norm(x["nombre"]) == _norm(nombre))["clave_hash"] = \
+        hashlib.sha256(clave.encode()).hexdigest()
+    _proyectos_escribir(root, lista)
+    log_evento(root, "proyectos", f"clave regenerada: {nombre}")
+    return clave
+
+
+def clave_valida(root: Path, nombre: str, clave: str) -> bool:
+    """¿Esa clave abre ese proyecto? Un proyecto público no exige clave —pedirle
+    una no protegería nada que no se vea ya desde cualquier lado."""
+    p = proyecto_por_nombre(root, nombre)
+    if not p:
+        return False
+    if not p["privado"]:
+        return True
+    return bool(p["clave_hash"]) and hmac.compare_digest(
+        p["clave_hash"], hashlib.sha256(str(clave or "").encode()).hexdigest())
 
 
 # ---------------------------------------------------------------- índices
@@ -1698,34 +1755,29 @@ def _desindexar(root: Path, slug: str) -> None:
 
 
 def _demo_privacidad(root: Path) -> None:
-    """Lo privado no sale de su proyecto, lo demás se ve desde cualquiera."""
-    proyecto_guardar(root, "Diario", "privado")
-    proyecto_guardar(root, "Taller", "personal")
+    """Lo privado es del PROYECTO (pedido 2026-09-05): lo suyo no sale de él, lo
+    de un proyecto público se ve desde cualquiera, y "Todo" (proyecto="" o
+    None — MCP/CLI sin contexto) es solo lo público."""
+    proyecto_guardar(root, "Diario", True)
+    proyecto_guardar(root, "Taller")
     capturar(root, "anoche soñé", proyecto="Diario")
     iid = sorted((root / "07_Inbox").glob("*.md"))[-1]
     m = frontmatter.load(iid).metadata
     assert m["proyecto"] == "Diario" and m["subjects"] == ["Proyectos/Diario"], m
-    assert m.get("privada") is True, "capturar dentro de un proyecto privado nace privada"
     assert m["fijado"] == [], "el subject del proyecto no congela la clasificación pendiente"
 
     guardar_entrada(root, "Secreto", "cuerpo", ["Proyectos/Diario"])
-    guardar_entrada(root, "Banco", "cuerpo", ["Proyectos/Taller"])
-    editar_entrada(root, "banco", privada=True)          # privada a mano, proyecto normal
     guardar_entrada(root, "Publica", "cuerpo", ["Proyectos/Taller"])
-    guardar_entrada(root, "Suelta", "cuerpo", [])
-    editar_entrada(root, "suelta", privada=True)         # privada y sin proyecto
 
     def slugs(p):
         return {e["slug"] for e in buscar_memorias(root, proyecto=p)}
 
-    assert "secreto" in slugs("Diario") and "banco" not in slugs("Diario")
-    assert {"banco", "publica"} <= slugs("Taller") and "secreto" not in slugs("Taller")
-    assert "publica" in slugs("Diario"), "lo NO privado se ve desde cualquier proyecto"
-    assert "suelta" in slugs("") and "suelta" not in slugs("Taller"), \
-        "'Sin proyecto' es un proyecto más: lo privado de ahí solo se ve ahí"
-    assert {"secreto", "banco", "suelta"} <= {e["slug"] for e in buscar_memorias(root)}, \
-        "sin contexto (MCP, CLI) no se filtra nada"
-    assert entradas_ocultas(root, "Taller") == {"secreto", "suelta"}
+    assert "secreto" in slugs("Diario") and "secreto" not in slugs("Taller")
+    assert "publica" in slugs("Taller") and "publica" in slugs("Diario"), \
+        "lo de un proyecto público se ve desde cualquier proyecto"
+    assert "secreto" not in slugs(""), "'Todo' es solo lo público"
+    assert "secreto" not in slugs(None), "sin contexto (MCP, CLI) también es solo lo público"
+    assert entradas_ocultas(root, "Taller") == {"secreto"}
     assert f"07_Inbox/{iid.name}" in paths_ocultos(root, "Taller"), "la captura pendiente también"
     assert "privada" in leer_pagina(root, f"{ENTRADAS}/secreto.md", proyecto="Taller")
     assert "cuerpo" in leer_pagina(root, f"{ENTRADAS}/secreto.md", proyecto="Diario")
@@ -1734,19 +1786,32 @@ def _demo_privacidad(root: Path) -> None:
     assert "secreto" not in grep(root, "cuerpo", proyecto="Taller")
     assert "secreto" in grep(root, "cuerpo", proyecto="Diario")
 
+    # togglear el proyecto cambia la visibilidad al instante, sin migrar nada
+    proyecto_guardar(root, "Taller", True)
+    assert "publica" not in slugs("Diario"), "Taller ahora es privado: deja de verse desde afuera"
+    proyecto_guardar(root, "Taller", False)
+    assert "publica" in slugs("Diario"), "y volver a público lo devuelve al instante"
+
+    assert clave_valida(root, "Taller", "cualquier-cosa"), "público no exige clave"
+    assert not clave_valida(root, "Diario", "adivinada"), "privado con clave mala, no"
+    clave = proyecto_clave(root, "Diario")
+    assert clave_valida(root, "Diario", clave), "y con la clave correcta, sí"
+
 
 def demo() -> None:
-    """Check de proyectos: unir, reasignar, barrido del inbox y el límite de lo
-    privado (no sale de su proyecto). `python -m mem.memoria`"""
+    """Check de proyectos: privacidad (por proyecto), un_proyecto, unir,
+    reasignar y barrido del inbox. `python -m mem.memoria`"""
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         _demo_privacidad(Path(tmp) / "priv")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        proyecto_guardar(root, "Casa", "personal")
-        proyecto_guardar(root, "CasaNueva", "trabajo")
+        proyecto_guardar(root, "Casa")
+        proyecto_guardar(root, "CasaNueva")
         guardar_entrada(root, "Obra", "cuerpo", ["Proyectos/Casa/Obra", "Tecnologia/IA"])
         guardar_entrada(root, "Ambas", "cuerpo", ["Proyectos/Casa", "Proyectos/CasaNueva"])
+        assert leer_entrada(root, "ambas")["subjects"] == ["Proyectos/Casa"], \
+            "un_proyecto: gana el primero, no se guardan dos"
         guardar_entrada(root, "Vecina", "cuerpo", ["Proyectos/CasaNueva"])
         capturar(root, "pendiente de casa", subjects=["Proyectos/Casa"])
         iid = sorted((root / "07_Inbox").glob("*.md"))[0]
@@ -1758,13 +1823,13 @@ def demo() -> None:
         assert [p["nombre"] for p in proyectos_listar(root)] == ["CasaNueva"], "la fila origen se va"
         assert leer_entrada(root, "obra")["subjects"] == ["Proyectos/CasaNueva/Obra", "Tecnologia/IA"], \
             "los hijos se mudan con el padre"
-        assert leer_entrada(root, "ambas")["subjects"] == ["Proyectos/CasaNueva"], "sin duplicar"
+        assert leer_entrada(root, "ambas")["subjects"] == ["Proyectos/CasaNueva"], "el único que tenía se muda"
         m = frontmatter.load(iid).metadata
         assert m["subjects"] == ["Proyectos/CasaNueva"] and m["proyecto"] == "CasaNueva", \
             "el inbox pendiente también se barre (si no, procesar.py revive el viejo)"
         assert not buscar_memorias(root, sin_proyecto=True), "todas cuelgan de un proyecto"
 
-        proyecto_guardar(root, "Refugio", "personal")
+        proyecto_guardar(root, "Refugio")
         proyecto_eliminar(root, "CasaNueva", destino="Refugio")
         assert leer_entrada(root, "vecina")["subjects"] == ["Proyectos/Refugio"]
         proyecto_eliminar(root, "Refugio")

@@ -65,7 +65,6 @@ def _pura(meta: dict) -> dict:
         "coords_captura": str(meta.get("coords_captura") or ""),
         "lugar_captura": str(meta.get("lugar_captura") or ""),
         "adjunto": str(meta.get("adjunto") or ""),
-        "privada": bool(meta.get("privada")),
     }
 
 
@@ -121,7 +120,6 @@ def _memorias(root: Path):
             "coords_captura": str(meta.get("coords_captura") or ""),
             "lugar_captura": str(meta.get("lugar_captura") or ""),
             "adjunto": str(meta.get("adjunto") or ""),
-            "privada": bool(meta.get("privada")),
         }
         yield f"{creada or '0000'}_{p.stem}", campos, f"{titulo}\n\n{_resumen(post.content)}"
 
@@ -326,7 +324,6 @@ def importar(root: Path, origen: Path) -> dict:
                     proyecto=str(meta.get("proyecto") or ""),
                     capturado=str(meta.get("capturado") or ""),
                     extra={"fijado": list(meta.get("fijado") or []), "id_origen": rastro,
-                           **({"privada": True} if meta.get("privada") else {}),
                            **({"lugar_captura": lc} if (lc := str(meta.get("lugar_captura") or "")) else {})})
                 r["nuevas"] += 1
             if iid:

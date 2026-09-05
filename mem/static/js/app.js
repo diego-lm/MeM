@@ -2,6 +2,7 @@ import { html, render, useEffect } from "../vendor/preact-htm.js";
 import { useStore, getState, go, reemplazar } from "./state.js";
 import { get, post } from "./api.js";
 import { TabBar, Sidebar } from "./ui.js";
+import { EditorProyectos } from "./proyectos.js";
 import { Home } from "./screens/home.js";
 import { Inbox } from "./screens/inbox.js";
 import { Memory } from "./screens/memory.js";
@@ -53,12 +54,12 @@ function App() {
   const s = useStore();
   const Screen = SCREENS[s.screen] || SCREENS.home;
   return html`
-    <${Sidebar} />
+    <${Sidebar} EditorProyectos=${EditorProyectos} />
     <div class="mem-content">
       <div class="mem-stage" style="position:relative;z-index:1;flex:1;display:flex;flex-direction:column;min-height:0">
         ${Screen()}
       </div>
-      <${TabBar} />
+      <${TabBar} EditorProyectos=${EditorProyectos} />
     </div>
   `;
 }

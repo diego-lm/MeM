@@ -2,10 +2,10 @@
 // esquina, mic) + Sidebar de escritorio (extrapolación propia del DS, sin
 // documento de referencia: sigue tokens/clases existentes, nada inventado fuera de ellos).
 import { html, useRef, useState, useEffect } from "../vendor/preact-htm.js";
-import { useStore, go, back } from "./state.js";
+import { useStore, go, back, setState } from "./state.js";
 import { dict, MODE_FALLBACK } from "./i18n.js";
 import { bajarAdjunto, get, post, postAttach } from "./api.js";
-import { usePrivado, privadosDe, ambitoDe, esSesionPrivada } from "./privado.js";
+import { privadosDe, esSesionPrivada } from "./privado.js";
 import { AUDIO_SVG, Lupa } from "./md.js";
 
 // -- dictado por voz (Web Speech API) — reemplaza el ticker de palabras falso
@@ -191,11 +191,13 @@ function BadgeInbox({ n }) {
     <span style="min-width:17px;height:17px;padding:0 4px;border-radius:var(--radius-md);background:var(--color-accent);color:var(--color-bg);font-family:var(--font-mono);font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center">${n > 99 ? "99+" : n}</span>`;
 }
 
-export function TabBar() {
+export function TabBar({ EditorProyectos }) {
   const s = useStore();
   const pend = useInboxPend();
+  const [proyAbierto, setProyAbierto] = useState(false);
   if (!SHOW_NAV.has(s.screen)) return html``;
   const L = dict(s.lang);
+  const proyecto = String(s.proyecto || "");
   return html`
     <div class="mem-tabbar-scrim"></div>
     <div class="mem-tabbar">
@@ -211,6 +213,20 @@ export function TabBar() {
               <span style="position:absolute;top:-4px;right:calc(50% - 26px)"><${BadgeInbox} n=${pend} /></span>`}
           </div>`;
       })}
+      <!-- el proyecto activo, adaptado al estándar de la tabbar: un tab más, no
+           un chip aparte (pedido 2026-08-31) — un toque abre el mismo editor que
+           el sidebar de escritorio (elegir · crear · renombrar · privado · unir ·
+           borrar), único punto de acceso en el celular ahora que el chip por
+           pantalla se fue. -->
+      <div role="button" tabindex="0" class="mem-tab" style="color:color-mix(in srgb, var(--color-text) 45%, transparent)" onClick=${() => setProyAbierto(true)}>
+        <span style="font-size:18px;line-height:1">◈</span>
+        <span style="font-family:var(--font-heading);font-size:11px;font-weight:600;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${proyecto || L.tProjAll}</span>
+        <span style="width:4px;height:4px;flex-shrink:0;background:transparent"></span>
+      </div>
+      ${proyAbierto && html`
+        <${EditorProyectos} valor=${proyecto} lang=${s.lang}
+                             onPick=${(n) => setState({ proyecto: n })}
+                             onClose=${() => setProyAbierto(false)} />`}
     </div>`;
 }
 
@@ -512,10 +528,33 @@ export function Alpaca({ alto = 96, clase = "", estilo = "" }) {
            style="height:${alto}px;width:auto;display:block;pointer-events:none;${estilo}"></video>`;
 }
 
-export function Sidebar() {
+/** Sesiones del sidebar: propias (fetch en el módulo, no en Home — el sidebar
+ *  vive montado en TODAS las pantallas) filtradas al proyecto elegido en el
+ *  dropdown de acá abajo. Se recarga al cambiar de pantalla (mismo patrón que
+ *  useInboxPend): no hay push del server, así que un turno nuevo/movido se ve
+ *  recién al navegar — vale para una app de un solo usuario. */
+function useSesionesSidebar(screen) {
+  const [sesiones, setSesiones] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    get("/sessions").then((r) => { if (vivo) setSesiones(r); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [screen]);
+  return sesiones;
+}
+
+export function Sidebar({ EditorProyectos }) {
   const s = useStore();
   const L = dict(s.lang);
   const pend = useInboxPend();
+  const proyectosTodos = useProyectos();
+  const privs = privadosDe(proyectosTodos);
+  const proyecto = String(s.proyecto || "");
+  const sesiones = useSesionesSidebar(s.screen);
+  const [gestionando, setGestionando] = useState(false);
+  const propias = (sesiones || [])
+    .filter((x) => String(x.proyecto || "") === proyecto)
+    .sort((a, b) => String(b.actualizada || "").localeCompare(String(a.actualizada || "")));
   return html`
     <aside class="mem-sidebar">
       <div class="mem-sidebar-brand">Me<span style="color:var(--color-accent)">M</span></div>
@@ -531,6 +570,35 @@ export function Sidebar() {
             </div>`;
         })}
       </nav>
+      <!-- proyecto + sus sesiones (pedido 2026-08-31): el dropdown SOLO filtra
+           esta lista y el proyecto activo (mismo itemsDeProyectos que el filtro
+           de Home) — no navega ni toca ninguna sesión. Abrir una sí. El ✎ de al
+           lado es el único lugar de la app que ahora abre EditorProyectos
+           (crear/renombrar/privado/unir/borrar) — el chip por pantalla que hacía
+           esto se fue con el sidebar (pedido 2026-08-31). -->
+      <div class="mem-sidebar-ses-wrap">
+        <div style="display:flex;align-items:center;gap:6px">
+          <${ChipMenu} etiqueta=${`◈ ${proyecto || L.tProjAll}`} on=${!!proyecto}
+                       estilo="flex:1;min-width:0;max-width:none;justify-content:space-between"
+                       items=${itemsDeProyectos(proyectosTodos, proyecto, [{ id: "", label: L.tProjAll }], s.lang)}
+                       onPick=${(n) => setState({ proyecto: n })} />
+          <span role="button" tabindex="0" title=${L.tProjects} class="mem-hit"
+                onClick=${() => setGestionando(true)}
+                style="width:32px;height:32px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px">✎</span>
+        </div>
+        ${gestionando && html`
+          <${EditorProyectos} valor=${proyecto} lang=${s.lang}
+                               onPick=${(n) => setState({ proyecto: n })}
+                               onClose=${() => setGestionando(false)} />`}
+        <div class="mem-sidebar-ses-list">
+          ${sesiones === null && html`<div style="opacity:.5;font-size:12px;padding:6px 10px">…</div>`}
+          ${sesiones !== null && !propias.length && html`<div style="opacity:.4;font-size:12px;padding:6px 10px">${L.tNoSessions}</div>`}
+          ${propias.map((ses) => html`
+            <div key=${ses.id} role="button" tabindex="0"
+                 class="mem-sidebar-ses ${s.screen === "chat" && s.param === ses.id ? "on" : ""} ${esSesionPrivada(ses, privs) ? "mem-privada" : ""}"
+                 title=${ses.titulo || ses.id} onClick=${() => go("chat", ses.id)}>${ses.titulo || ses.id}</div>`)}
+        </div>
+      </div>
       <div class="mem-sidebar-foot">
         <!-- en escritorio la mascota vive acá, en la columna de la izquierda
              (pedido 2026-08-08): es la única banda de la app con aire de sobra
@@ -638,34 +706,30 @@ export function useProyectos() {
  *  saber qué es privado (mejor un parpadeo vacío que un parpadeo que muestra). */
 export const proyectosListos = () => proyectosCache !== null;
 
-export async function crearProyecto(nombre, ambito) {
-  const p = await post("/projects", { nombre, ambito });
+export async function crearProyecto(nombre, privado) {
+  const p = await post("/projects", { nombre, privado: !!privado });
   await cargarProyectos(true);
   return p;
 }
 
-// privado en ROJO: el mismo que marca sus fichas y filas (.mem-privada).
-// Trabajo en azul pizarra a propósito (ds.css --amb-*): a 12px, naranja y
-// rojo se confundían — el azul es el único frío de la paleta y se distingue
-// de un vistazo.
-export const AMBITO_COLOR = { personal: "var(--amb-personal)", trabajo: "var(--amb-trabajo)", privado: "var(--amb-privado)" };
-
-/** Indicador de ámbito (redesign Modernist 2026-08-08: el sistema es mono-rojo,
- *  sin un segundo/tercer matiz que gastar en distinguir personal/trabajo/privado
- *  — así que el ámbito pasa a leerse por FORMA, no por color de ícono: relleno =
- *  personal, contorno = trabajo, rojo = privado (los tres ya resueltos en
- *  --amb-* por ds.css). Reemplaza los 3 SVG maletín/busto/advertencia. */
-export function IconoAmbito({ ambito = "personal", size = 13, estilo = "" }) {
-  const base = `display:inline-block;flex-shrink:0;width:${size}px;height:${size}px;${estilo}`;
-  if (ambito === "trabajo") return html`<span style="${base}border:1.5px solid var(--amb-trabajo)"></span>`;
-  if (ambito === "privado") return html`<span style="${base}background:var(--amb-privado)"></span>`;
-  return html`<span style="${base}background:var(--amb-personal)"></span>`;
+/** Items de ChipMenu para los selectores de proyecto — Home, Memory, Media, el
+ *  sidebar y el mover de sesión/memoria arman exactamente los mismos. `extras`
+ *  van primero (típicamente Todo). Acá porque ChipMenu ya vive acá; proyectos.js
+ *  lo reexporta (lo sigue usando EditorProyectos). Un proyecto privado se marca
+ *  con ⚿ — el mismo glifo/rojo que sus fichas y filas (.mem-privada). */
+export function itemsDeProyectos(lista, valor, extras = [], lang = "es") {
+  const L = dict(lang);
+  return [...extras.map((e) => ({ glyph: "◈", ...e, on: e.id === valor })),
+          ...lista.map((p) => ({
+            id: p.nombre, label: p.nombre, sub: p.privado ? L.tPrivado : "",
+            glyph: p.privado ? html`<span class="mem-privada">⚿</span>` : "◈",
+            on: p.nombre === valor }))];
 }
 
-// El dropdown de proyecto (elegir/crear) vivía acá y se borró en v87: elegir es
-// una de las cinco cosas que se hacen con un proyecto, y las otras cuatro
-// (renombrar, ámbito, unir, borrar) estaban escondidas en el panel de búsqueda
-// de Home, una con window.prompt. Todo eso es ahora js/proyectos.js.
+// El editor de proyecto (renombrar/ámbito/unir/borrar) vivía acá y se borró en
+// v87: elegir es una de las cinco cosas que se hacen con un proyecto, y las
+// otras cuatro estaban escondidas en el panel de búsqueda de Home, una con
+// window.prompt. Ese editor es ahora js/proyectos.js.
 
 /** Escape cierra el menú/desplegable abierto. Un hook y no un onKeyDown por
  *  copia: las cuatro variantes de dropdown compartían el mismo agujero (solo
@@ -762,27 +826,6 @@ export function SelectorModo({ valor, modos, lang, onPick }) {
     <${ChipMenu} etiqueta=${`${actual.glyph || "▮"} ${valor || actual.nombre}`} on=${true} ancho=${250}
                  items=${lista.map((m) => ({ id: m.nombre, glyph: m.glyph, label: m.nombre,
                    sub: (L.modeDescs || {})[m.nombre] || m.descripcion || "", on: m.nombre === valor }))}
-                 onPick=${onPick} />`;
-}
-
-/** Buscador de sesiones para la pantalla completa: el mismo gesto que en Home
- *  (⌕ → últimas sesiones, filtrables) pero en un menú, para que entre en la
- *  primera fila junto al título (pedido 2026-08-04). */
-export function SelectorSesion({ sid, lang, onPick }) {
-  const L = dict(lang);
-  const [lista, setLista] = useState(null);
-  const { oculto } = usePrivado();
-  const privs = privadosDe(useProyectos());
-  useEffect(() => { get("/sessions").then(setLista).catch(() => setLista([])); }, []);
-  const recientes = [...(lista || [])]
-    .filter((x) => !oculto || (proyectosListos() && !esSesionPrivada(x, privs)))
-    .sort((a, b) => String(b.actualizada || "").localeCompare(String(a.actualizada || ""))).slice(0, 20);
-  return html`
-    <${ChipMenu} etiqueta=${html`⌕<span class="mem-chip-txt"> ${L.tSessionsWord}</span>`}
-                 titulo=${L.phSearch} ancho=${270} buscador=${L.phSearch} haciaDerecha=${true}
-                 items=${recientes.map((x) => ({
-                   id: x.id, glyph: (MODE_FALLBACK[x.modo] || MODE_FALLBACK.chat).glyph,
-                   label: x.titulo || x.id, sub: `${x.proyecto || L.tNoProject} · ${x.modo}`, on: x.id === sid }))}
                  onPick=${onPick} />`;
 }
 
@@ -1497,13 +1540,8 @@ const CSS = `
 .mem-proy-item{display:flex;align-items:center;gap:8px;padding:10px 10px;min-height:44px;border-radius:var(--radius-md);font-size:var(--fs-3);cursor:pointer;text-transform:none;letter-spacing:0}
 .mem-proy-item:hover{background:color-mix(in srgb,var(--color-text) 6%,transparent)}
 .mem-proy-input{width:100%;box-sizing:border-box;height:40px;padding:0 10px;border-radius:var(--radius-md);border:1px solid var(--color-accent);background:var(--color-bg);color:var(--color-text);font-size:var(--fs-3);outline:none}
-.mem-proy-amb{position:relative;flex:1;text-align:center;padding:9px 0;border-radius:var(--radius-md);font-size:var(--fs-1);cursor:pointer;border:1px solid var(--color-divider);color:var(--text-2)}
-.mem-proy-amb.on{border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 14%,transparent);color:var(--color-accent-700)}
 /* Pastilla que ABRAZA su texto: acciones sueltas (.mem-tog) y casillas
-   (.mem-tog.check, con el cuadrito del estado a la izquierda). .mem-proy-amb no
-   sirve para esto: es un segmentado (flex:1) y con dos opciones se estiraba a
-   media hoja cada una — dos rectángulos con el texto pegado al borde izquierdo,
-   o sea dos campos de texto vacíos (visto 2026-08-12). */
+   (.mem-tog.check, con el cuadrito del estado a la izquierda). */
 .mem-tog{display:inline-flex;align-items:center;gap:9px;min-height:40px;padding:0 14px;border-radius:var(--radius-md);border:1px solid var(--color-divider);background:var(--color-surface);color:var(--text-2);font-size:var(--fs-2);cursor:pointer}
 .mem-tog.check::before{content:"";width:13px;height:13px;flex-shrink:0;border-radius:3px;border:1.5px solid currentColor;opacity:.5}
 .mem-tog.on{border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 12%,transparent);color:var(--color-accent-700)}
@@ -1625,15 +1663,11 @@ const CSS = `
    la tira de clima es flex:1 y mide su propio hueco, así que de ese número sale
    cuántas horas entran. Donde la mascota no está, la banda arranca en el borde. */
 .mem-home-banda{position:absolute;top:0;left:64px;right:0;z-index:3;display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}
-/* El proyecto activo se lleva su propio renglón menos en escritorio: abajo de
-   880px el contenido mide 420px y ahí la banda ya está llena — clima pide 138
-   (3 columnas de 46, su mínimo), la fecha 47 y el tema 44. Metiéndolo en la
-   misma fila el pronóstico quedaba en 10px, o sea recortado a nada. */
-.mem-home-proy{flex-basis:100%;display:flex;justify-content:flex-end}
-/* despeja la banda de arriba (clima/fecha/tema/proyecto a la derecha, alpaca a
-   la izquierda), que flota con position:absolute y por eso no empuja nada por sí
-   sola: 44 de la primera fila + 6 de gap + 32 del chip + aire. */
-.mem-home-card{margin-top:90px}
+/* despeja la banda de arriba (clima/fecha/tema a la derecha, alpaca a la
+   izquierda), que flota con position:absolute y por eso no empuja nada por sí
+   sola: 44 de la fila + aire. El proyecto se fue al sidebar/tabbar (pedido
+   2026-08-31) — ya no le suma un segundo renglón abajo de 880px. */
+.mem-home-card{margin-top:52px}
 /* sus resultados caen como panel flotante sobre el chatbox (pedido 2026-08-04) */
 .mem-home-busca{position:relative;z-index:6;flex-shrink:0}
 /* el panel reemplaza visualmente al chatbox (pedido 2026-08-05): cuelga de
@@ -1661,8 +1695,6 @@ const CSS = `
      display:block inline (le gana a una clase suelta). */
   .mem-home-alpaca{display:none!important}
   .mem-home-banda{left:0}
-  .mem-home-proy{flex-basis:auto}   /* acá sí entra todo en un renglón */
-  .mem-home-card{margin-top:52px}
   /* el sidebar pinta su propio fondo: sin esto heredaba el del body y en dark
      mode se quedaba claro (bug reportado). */
   .mem-sidebar{display:flex;flex-direction:column;width:220px;flex-shrink:0;padding:28px 14px;gap:22px;background:var(--color-surface);color:var(--color-text);border-right:1px solid var(--color-divider)}
@@ -1672,6 +1704,15 @@ const CSS = `
   .mem-sidebar-item:hover{background:color-mix(in srgb,var(--color-text) 6%,transparent)}
   .mem-sidebar-item.on{background:var(--color-bg);border-color:var(--color-divider);color:var(--color-text)}
   .mem-sidebar-glyph{width:20px;text-align:center;font-size:15px}
+  /* flex:1 y no auto: es lo único de la columna que debe crecer y scrollear
+     por su cuenta — nav y foot quedan fijos arriba/abajo (foot ya usa
+     margin-top:auto, así que esto solo le hace lugar en el medio). */
+  .mem-sidebar-ses-wrap{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+  .mem-sidebar-ses-list{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:1px;margin:0 -6px}
+  .mem-sidebar-ses{padding:7px 10px;border-radius:var(--radius-md);cursor:pointer;font-size:12.5px;
+    color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mem-sidebar-ses:hover{background:color-mix(in srgb,var(--color-text) 6%,transparent)}
+  .mem-sidebar-ses.on{background:var(--color-bg);color:var(--color-text);font-weight:600}
   .mem-sidebar-foot{margin-top:auto;display:flex;flex-direction:column;gap:14px}
   /* la mascota, a lo ancho de la columna y sangrada hasta los filos */
   .mem-sidebar-alpaca{display:flex;justify-content:center;margin:0 -14px}

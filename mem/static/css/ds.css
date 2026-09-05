@@ -106,15 +106,6 @@
   --lh-tight: 1.25;
   --lh-base: 1.55;
   --lh-loose: 1.7;
-
-  /* Ámbito de proyecto/sesión: ya no es un color por ámbito (mono-rojo no
-     tiene un segundo/tercer matiz que gastar) — personal/trabajo se leen por
-     forma (relleno vs. contorno, ver IconoAmbito en ui.js) y comparten
-     --color-text; privado es el único que sí usa color, el rojo único del
-     sistema, porque ES el estado que hay que destacar. */
-  --amb-personal: var(--color-text);
-  --amb-trabajo: var(--color-text);
-  --amb-privado: var(--color-priv);
 }
 
 body {

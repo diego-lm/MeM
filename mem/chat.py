@@ -45,10 +45,12 @@ TOOL_PROYECTO = {
     "name": "fijar_proyecto",
     "description": ("Asigna o cambia el proyecto de esta sesión cuando Diego dice en cuál está "
                     "trabajando o dónde quiere guardar lo que están hablando. Si el nombre no "
-                    "está en la lista de proyectos, pregúntale antes si quiere crearlo."),
+                    "está en la lista de proyectos, pregúntale antes si quiere crearlo — y si tiene "
+                    "que ser privado (solo se lee parado en él). Omití `privado` si el proyecto ya "
+                    "existe y Diego no dijo nada de cambiarle eso: sin el parámetro no se toca."),
     "parameters": {"type": "object", "properties": {
         "nombre": {"type": "string"},
-        "ambito": {"type": "string", "enum": list(memoria.AMBITOS)}},
+        "privado": {"type": "boolean"}},
         "required": ["nombre"]},
 }
 
@@ -98,8 +100,8 @@ def _system(root, modo: dict, resumen: str, subjects: list | None = None, proyec
                       "Prioriza buscar y leer páginas de esos subjects.")
     proyectos = memoria.proyectos_listar(root)
     if proyectos:
-        partes.append("Proyectos de Diego: "
-                      + ", ".join(f"{p['nombre']} ({p['ambito']})" for p in proyectos) + ".")
+        partes.append("Proyectos de Diego: " + ", ".join(
+            f"{p['nombre']} ({'privado' if p['privado'] else 'público'})" for p in proyectos) + ".")
     if proyecto:
         partes.append(
             f"Proyecto activo de esta sesión: {proyecto}. Lo que guardes acá queda dentro del "
@@ -165,19 +167,27 @@ def _ejecutar(root, nombre: str, args: dict, paginas: list, max_paginas: int, ct
         from . import media
         # el modelo suele copiar la URL del markdown previo (/attach/07_...): se acepta igual
         ruta = str(args.get("path") or "").strip().lstrip("/").removeprefix("attach/")
-        contenido, faltante, _ = media.extraer(agentes.para(ctx["cfg"], "chat"), root, ruta)
+        cfg_chat = agentes.para(ctx["cfg"], "chat")
+        contenido, faltante, _ = media.extraer(cfg_chat, root, ruta)
+        if len(contenido) > media.MAX_CHARS:
+            # la línea de tiempo de un video de una hora no entra en el contexto:
+            # acá va resumida y la copia entera queda en la entrada, paginada
+            contenido = (f"{media.condensar(cfg_chat, contenido)}\n\n"
+                         "(resumen por tramos; la línea de tiempo completa está en la entrada "
+                         "de este medio, se lee con leer_pagina y su parámetro `parte`)")
         return contenido or f"({faltante or 'medio vacío'})"
     if nombre == "fijar_proyecto":
         if not ctx.get("sid"):
             return "(no hay sesión activa a la que fijarle un proyecto)"
         try:
+            privado = args.get("privado")
             p = memoria.proyecto_guardar(root, str(args.get("nombre") or ""),
-                                         str(args.get("ambito") or "personal"))
+                                         bool(privado) if privado is not None else None)
         except ValueError as e:
             return f"({e})"
         ctx["proyecto"] = p["nombre"]
         sesiones.actualizar_meta(root, ctx["sid"], proyecto=p["nombre"])
-        return f"proyecto de la sesión: {p['nombre']} ({p['ambito']})"
+        return f"proyecto de la sesión: {p['nombre']} ({'privado' if p['privado'] else 'público'})"
     if nombre in crear.NOMBRES:
         # las de nube gastan créditos: la app frena acá y le pregunta a Diego con un
         # diálogo (pedido 2026-08-06). El diálogo devuelve los args con los que
@@ -448,10 +458,12 @@ def _con_adjuntos(cfg: dict, texto: str, adjuntos: list[str], on_evento=None, on
     quedaba invisible: el chat mostraba "pensando…" sin ninguna señal de qué parte
     del turno estaba colgada (bug real 2026-08-09, ver llm.TIMEOUT_API)."""
     from . import media
+    cfg_chat = agentes.para(cfg, "chat")
     for adjunto in adjuntos:
         if on_evento:
             on_evento("leer_adjunto", {"path": adjunto})
-        contenido, faltante, _ = media.extraer(agentes.para(cfg, "chat"), cfg["hamuq"], adjunto)
+        contenido, faltante, _ = media.extraer(cfg_chat, cfg["hamuq"], adjunto)
+        contenido = media.condensar(cfg_chat, contenido)   # un video largo no entra en el turno
         if on_resultado:
             on_resultado("leer_adjunto", {"path": adjunto}, f"(no leído: {faltante})" if faltante else "ok")
         nota = ""

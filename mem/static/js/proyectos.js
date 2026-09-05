@@ -1,80 +1,52 @@
-// Proyectos: el chip que dice dónde estás parado y el editor que los maneja.
+// Proyectos: el editor que los maneja (crear/renombrar/privado/unir/borrar).
 //
 // Reemplaza al SelectorProyecto (un dropdown que solo elegía, escondido en la
 // cabecera del chatbox) y a la gestión que vivía dispersa en el panel de
 // búsqueda de Home, con un window.prompt para renombrar (pedido 2026-08-12).
-// Vive fuera de ui.js porque ui.js ya pasó las 1700 líneas y esto es una
-// pantalla entera, no una primitiva compartida.
+// El chip por pantalla que lo abría (ProyectoActivo) se fue con el sidebar y
+// la tabbar (pedido 2026-08-31): ahora son ellos quienes abren EditorProyectos
+// directo. Vive fuera de ui.js porque ui.js ya pasó las 1700 líneas y esto es
+// una pantalla entera, no una primitiva compartida.
 import { html, useState } from "../vendor/preact-htm.js";
-import { patch, del } from "./api.js";
+import { patch, post, del } from "./api.js";
 import { dict } from "./i18n.js";
-import { usePrivado, ambitoDe } from "./privado.js";
-import { Sheet, ChipMenu, IconoAmbito, AMBITO_COLOR, useProyectos, cargarProyectos,
-         crearProyecto, useEscape } from "./ui.js";
+import { usePrivado } from "./privado.js";
+import { Sheet, ChipMenu, useProyectos, cargarProyectos,
+         crearProyecto, useEscape, itemsDeProyectos } from "./ui.js";
+
+// El sidebar y las tres pantallas la piden con este import: vive en ui.js
+// (junto a ChipMenu, de la que depende) y se reexporta acá porque
+// EditorProyectos también la usa (picker de "unir").
+export { itemsDeProyectos };
 
 /** Los proyectos que se pueden mostrar: con el candado puesto, los privados no
  *  existen para nadie (ni en el editor, ni en los pickers de unir/destino). */
 export function useProyectosVisibles() {
   const { oculto } = usePrivado();
   const todos = useProyectos();
-  return oculto ? todos.filter((p) => p.ambito !== "privado") : todos;
+  return oculto ? todos.filter((p) => !p.privado) : todos;
 }
 
-/** Items de ChipMenu para los filtros de búsqueda — Home, Memory y Media arman
- *  exactamente los mismos. `extras` van primero (Todos, Sin proyecto). */
-export function itemsDeProyectos(lista, valor, extras = [], lang = "es") {
-  const L = dict(lang);
-  return [...extras.map((e) => ({ glyph: "◈", ...e, on: e.id === valor })),
-          ...lista.map((p) => ({
-            id: p.nombre, label: p.nombre, sub: L.ambitos[p.ambito] || p.ambito,
-            glyph: html`<span style="color:${AMBITO_COLOR[p.ambito] || AMBITO_COLOR.personal}"><${IconoAmbito} ambito=${p.ambito} /></span>`,
-            on: p.nombre === valor }))];
-}
-
-/** El proyecto activo, siempre en el mismo lugar de las tres pantallas (Home,
- *  Memory y la sesión) para que se lea como "estás DENTRO de esto". Un solo
- *  toque abre el editor: elegir otro es lo primero que ofrece. */
-export function ProyectoActivo({ valor, onPick, lang, titulo = "", estilo = "" }) {
-  const L = dict(lang);
-  const todos = useProyectos();
-  const { oculto } = usePrivado();
-  const [abierto, setAbierto] = useState(false);
-  const amb = ambitoDe(todos, valor);
-  // con el candado puesto ni el NOMBRE de un proyecto privado se muestra (el
-  // chip viejo filtraba la lista del menú pero igual lo escribía acá)
-  const tapado = oculto && amb === "privado";
-  return html`
-    <span style="display:inline-flex;flex-shrink:0;${estilo}">
-      <span role="button" tabindex="0" class="mem-proy-chip" aria-haspopup="dialog" aria-expanded=${abierto}
-            title=${titulo || L.tProjects} onClick=${() => setAbierto(true)}>
-        ${valor
-          ? html`<span style="color:${AMBITO_COLOR[amb] || AMBITO_COLOR.personal}"><${IconoAmbito} ambito=${amb} /></span>`
-          : "◈"}
-        <span style="display:inline-block;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">${tapado ? "⚿" : (valor || L.tNoProject)}</span> ✎</span>
-      ${abierto && html`
-        <${EditorProyectos} valor=${valor} lang=${lang} onPick=${onPick} onClose=${() => setAbierto(false)} />`}
-    </span>`;
-}
-
-/** Editor: elegir el activo, renombrar, cambiar ámbito, unir y borrar. Todo en
- *  un Sheet — el back de hardware lo cierra solo (pilaSheets en ui.js).
+/** Editor: elegir el activo, renombrar, togglear privado, unir y borrar. Todo
+ *  en un Sheet — el back de hardware lo cierra solo (pilaSheets en ui.js).
  *  Cuando la mutación toca al proyecto activo, el sync lo hace ACÁ (sabe
  *  viejo→nuevo) y no cada pantalla que monta el chip. */
 export function EditorProyectos({ valor, onPick, lang, onClose }) {
   const L = dict(lang);
   const lista = useProyectosVisibles();
   const [abierta, setAbierta] = useState("");     // proyecto con sus acciones desplegadas
-  const [modo, setModo] = useState("");           // "" | renombrar | unir | borrar
+  const [modo, setModo] = useState("");           // "" | renombrar | privado | unir | borrar | clave
   const [nombre, setNombre] = useState("");
   const [destino, setDestino] = useState("");
-  const [ambito, setAmbito] = useState("personal");
+  const [privadoNuevo, setPrivadoNuevo] = useState(false);
+  const [claveNueva, setClaveNueva] = useState("");
   const [creando, setCreando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState("");
   useEscape(true, onClose);
 
   const elegir = (n) => { onPick(n); onClose(); };
-  const cerrarAcciones = () => { setAbierta(""); setModo(""); setNombre(""); setDestino(""); setError(""); };
+  const cerrarAcciones = () => { setAbierta(""); setModo(""); setNombre(""); setDestino(""); setClaveNueva(""); setError(""); };
 
   async function mutar(fn, nuevoActivo) {
     if (ocupado) return;
@@ -100,11 +72,21 @@ export function EditorProyectos({ valor, onPick, lang, onClose }) {
   const unir = (p) => mutar(
     () => patch(`/projects/${encodeURIComponent(p.nombre)}`, { nombre: destino, fusionar: true }),
     valor === p.nombre ? destino : undefined);
+  const togglearPrivado = (p) => mutar(
+    () => patch(`/projects/${encodeURIComponent(p.nombre)}`, { privado: !p.privado }));
   const crear = () => {
     const n = nombre.trim();
     if (!n) return;
-    mutar(async () => { await crearProyecto(n, ambito); }, n);
+    mutar(async () => { await crearProyecto(n, privadoNuevo); }, n);
   };
+  async function generarClave(p) {
+    if (ocupado) return;
+    setOcupado(true);
+    setError("");
+    try { setClaveNueva((await post(`/projects/${encodeURIComponent(p.nombre)}/clave`, {})).clave); }
+    catch (e) { setError(String(e?.message || e)); }
+    setOcupado(false);
+  }
 
   const fila = (contenido, props = {}) => html`
     <div role="button" tabindex="0" class="mem-proy-item" style="min-height:46px" ...${props}>${contenido}</div>`;
@@ -114,20 +96,20 @@ export function EditorProyectos({ valor, onPick, lang, onClose }) {
       <div style="padding:8px 18px 26px;overflow:auto">
         <h3 style="margin:0 0 10px;font-family:var(--font-heading);font-size:23px">${L.tProjects}</h3>
 
-        <!-- "Sin proyecto" ES un proyecto: se elige como cualquier otro, pero no
-             se renombra ni se borra, así que no lleva ⋯ -->
+        <!-- "Todo" — la Biblioteca compartida, siempre pública — se elige como
+             cualquier otro, pero no se renombra ni se borra, así que no lleva ⋯ -->
         ${fila(html`
           <span style="width:13px;flex-shrink:0;text-align:center">◈</span>
-          <span style="flex:1;min-width:0;${valor ? "" : "color:var(--color-accent-700);font-weight:700"}">${L.tNoProject}</span>`,
+          <span style="flex:1;min-width:0;${valor ? "" : "color:var(--color-accent-700);font-weight:700"}">${L.tProjAll}</span>`,
           { onClick: () => elegir("") })}
 
         ${lista.map((p) => html`
           <div key=${p.nombre} style="border-top:1px solid var(--color-divider)">
             <div style="display:flex;align-items:center;gap:2px">
               ${fila(html`
-                <span style="color:${AMBITO_COLOR[p.ambito] || AMBITO_COLOR.personal}"><${IconoAmbito} ambito=${p.ambito} /></span>
+                <span style="width:13px;flex-shrink:0;text-align:center">${p.privado ? html`<span class="mem-privada">⚿</span>` : "◈"}</span>
                 <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${p.nombre === valor ? "color:var(--color-accent-700);font-weight:700" : ""}">${p.nombre}</span>
-                <span style="opacity:.5;flex-shrink:0;font-size:11px">${L.ambitos[p.ambito] || p.ambito}</span>`,
+                ${p.privado && html`<span style="opacity:.5;flex-shrink:0;font-size:11px">${L.tPrivado}</span>`}`,
                 { onClick: () => elegir(p.nombre), style: "min-height:46px;flex:1;min-width:0" })}
               <span role="button" tabindex="0" class="mem-hit" title=${L.tEdit}
                     onClick=${() => (abierta === p.nombre ? cerrarAcciones() : (cerrarAcciones(), setAbierta(p.nombre), setNombre(p.nombre)))}
@@ -144,6 +126,16 @@ export function EditorProyectos({ valor, onPick, lang, onClose }) {
                     <span role="button" tabindex="0" onClick=${() => renombrar(p)} class="mem-btn-accent"
                           style="height:40px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;cursor:pointer;font-size:13px">${L.tSave}</span>
                   </div>`
+                  : modo === "privado" ? html`
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <span style="font-size:13px;line-height:1.5;color:var(--text-2)">${L.tPrivToggleQ}</span>
+                    <div style="display:flex;gap:8px">
+                      <span role="button" tabindex="0" onClick=${() => togglearPrivado(p)} class="mem-btn-accent"
+                            style="height:34px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;cursor:pointer;font-size:13px">${L.tConfirm}</span>
+                      <span role="button" tabindex="0" onClick=${cerrarAcciones}
+                            style="height:34px;padding:0 14px;display:flex;align-items:center;cursor:pointer;font-size:13px;opacity:.7">${L.tCancel}</span>
+                    </div>
+                  </div>`
                   : modo === "unir" ? html`
                   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <${ChipMenu} etiqueta=${`→ ${destino || "…"}`} ancho=${230}
@@ -152,21 +144,25 @@ export function EditorProyectos({ valor, onPick, lang, onClose }) {
                     ${destino && html`
                       <span role="button" tabindex="0" onClick=${() => unir(p)} class="mem-btn-accent"
                             style="height:34px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;cursor:pointer;font-size:13px">${L.tConfirm}</span>`}
-                    <span style="flex-basis:100%;font-size:12px;line-height:1.5;color:var(--text-2)">${L.tMergeBody}</span>
+                    <span style="flex-basis:100%;font-size:12px;line-height:1.5;color:var(--text-2)">${L.tMergeBody}
+                      ${destino && ` ${L.tMergePriv} ${destino}: ${(lista.find((x) => x.nombre === destino) || {}).privado ? L.tPrivado : L.tPublico}.`}</span>
+                  </div>`
+                  : modo === "clave" ? html`
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    ${claveNueva ? html`
+                      <span style="font-size:12px;line-height:1.5;color:var(--text-2)">${L.tProjKeyBody}</span>
+                      <code style="font-size:12.5px;padding:8px;border-radius:var(--radius-md);background:var(--color-surface);word-break:break-all;user-select:all">${claveNueva}</code>`
+                      : html`<span role="button" tabindex="0" onClick=${() => generarClave(p)} class="mem-btn-accent"
+                                  style="height:34px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px">${L.tProjKey}</span>`}
                   </div>`
                   : html`
-                  <!-- acciones: pastillas que abrazan su texto. El ámbito de
-                       abajo SÍ es un segmentado (tres estados de una cosa), y
-                       si las dos filas se ven iguales no se distingue una de otra. -->
+                  <!-- acciones: pastillas que abrazan su texto. -->
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
                     <span role="button" tabindex="0" class="mem-tog" onClick=${() => setModo("renombrar")}>${L.tRename}</span>
+                    <span role="button" tabindex="0" class="mem-tog ${p.privado ? "on" : ""}" onClick=${() => setModo("privado")}>⚿ ${L.tPrivado}</span>
                     <span role="button" tabindex="0" class="mem-tog" onClick=${() => setModo("unir")}>${L.tProjMerge}</span>
+                    ${p.privado && html`<span role="button" tabindex="0" class="mem-tog" onClick=${() => setModo("clave")}>${L.tProjKey}</span>`}
                     <span role="button" tabindex="0" class="mem-tog peligro" onClick=${() => setModo("borrar")}>${L.tDelete}</span>
-                  </div>
-                  <div style="display:flex;gap:5px;flex-wrap:wrap">
-                    ${Object.keys(L.ambitos).map((a) => html`
-                      <span key=${a} role="button" tabindex="0" class="mem-proy-amb ${p.ambito === a ? "on" : ""}"
-                            onClick=${() => mutar(() => crearProyecto(p.nombre, a))}>${L.ambitos[a]}</span>`)}
                   </div>`}
                 ${error && html`<div style="font-size:12px;color:var(--color-priv)">${error}</div>`}
               </div>`}
@@ -179,17 +175,14 @@ export function EditorProyectos({ valor, onPick, lang, onClose }) {
             <input value=${nombre} autofocus placeholder=${L.phProjectName} class="mem-proy-input"
                    onInput=${(e) => setNombre(e.target.value)}
                    onKeyDown=${(e) => { if (e.key === "Enter") crear(); if (e.key === "Escape") setCreando(false); }} />
-            <div style="display:flex;gap:5px">
-              ${Object.keys(L.ambitos).map((a) => html`
-                <span key=${a} role="button" tabindex="0" onClick=${() => setAmbito(a)}
-                      class="mem-proy-amb ${ambito === a ? "on" : ""}">${L.ambitos[a]}</span>`)}
-            </div>
+            <span role="button" tabindex="0" aria-checked=${privadoNuevo} class="mem-tog check ${privadoNuevo ? "on" : ""}"
+                  style="align-self:flex-start" onClick=${() => setPrivadoNuevo((v) => !v)}>⚿ ${L.tPrivado}</span>
             <div role="button" tabindex="0" onClick=${crear} class="mem-btn-accent"
                  style="height:40px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer">${L.tSave}</div>
             ${error && html`<div style="font-size:12px;color:var(--color-priv)">${error}</div>`}
           </div>`
           : fila(html`<span style="color:var(--color-accent-700)">＋ ${L.tNewProject}</span>`,
-                 { onClick: () => { cerrarAcciones(); setNombre(""); setCreando(true); },
+                 { onClick: () => { cerrarAcciones(); setNombre(""); setPrivadoNuevo(false); setCreando(true); },
                    style: "min-height:46px;border-top:1px solid var(--color-divider)" })}
       </div>
 
@@ -219,7 +212,7 @@ function ConfirmarBorradoProyecto({ nombre, otros, lang, onClose, onBorrar }) {
   // dice "Borrar", "Borrar sus sesiones · Borrar sus memorias" es puro eco.
   const papelera = [borrarSes && L.tSessionsWord, borrarMem && L.tMemories].filter(Boolean).join(" + ");
   const sub = [papelera && `${L.tToTrash.replace(/^✕\s*/, "")}: ${papelera}`,
-               conserva && `${L.tMoveTo} ${destino || L.tNoProject}`].filter(Boolean).join(" · ");
+               conserva && `${L.tMoveTo} ${destino || L.tProjAll}`].filter(Boolean).join(" · ");
   return html`
     <${Sheet} onClose=${onClose} maxHeight="70%">
       <div style="padding:8px 22px 26px">
@@ -233,8 +226,8 @@ function ConfirmarBorradoProyecto({ nombre, otros, lang, onClose, onBorrar }) {
         ${conserva && html`
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px;font-size:13px">
             <span style="color:var(--text-2)">${L.tMoveTo}</span>
-            <${ChipMenu} etiqueta=${destino || L.tNoProject} ancho=${230}
-                         items=${itemsDeProyectos(otros, destino, [{ id: "", label: L.tNoProject }], lang)}
+            <${ChipMenu} etiqueta=${destino || L.tToAllPublic} ancho=${230}
+                         items=${itemsDeProyectos(otros, destino, [{ id: "", label: L.tToAllPublic }], lang)}
                          onPick=${setDestino} />
           </div>`}
         <div role="button" tabindex="0" class="mem-btn-danger" style="min-height:52px;padding:8px 16px;border-radius:var(--radius-md);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:var(--font-heading);font-size:16px;cursor:pointer;margin-bottom:10px;opacity:${borrando ? 0.6 : 1}"
