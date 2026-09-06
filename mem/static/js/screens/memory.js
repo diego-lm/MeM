@@ -426,6 +426,19 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     const ms = VENTANAS.find(([id]) => id === ventana)?.[1] ?? 0;
     return !ms || (r.ts ? r.ts * 1000 : instante(r).getTime()) >= Date.now() - ms;
   };
+  // Los filtros se aplican UNA vez acá (todas las vistas derivan de `visibles`)
+  // y van declarados ANTES de los useMemo que los usan: `const` no se hoistea y
+  // el cuerpo del memo corre en el acto, así que tenerlos debajo tiraba
+  // "Cannot access 'pasaFiltros' before initialization" en cuanto había texto —
+  // o sea, escribir en el buscador no hacía nada (reportado 2026-09-06).
+  const pasaTipo = (r) => !tipos.length || tipos.includes(tipoDe(r));
+  // Proyecto · tema · tag: los tres chips de arriba acotan TODO lo que Memory
+  // muestra, no solo el buscador — son los mismos controles, siempre a la vista.
+  // Sirven igual para memorias, items de inbox y sesiones: los tres traen
+  // `subjects`, y de ahí sale el proyecto igual que siempre.
+  const pasaSubTag = (r) => (!fTag || (r.tags || []).includes(fTag))
+    && (!fSub || (r.subjects || []).some((x) => x === fSub || String(x).startsWith(fSub + "/")));
+  const pasaFiltros = (r) => (!fProy || proyectoDe(r) === fProy) && pasaSubTag(r);
   // inbox y sesiones se filtran acá: sus listas ya están en memoria
   const inboxHits = useMemo(() => !q ? [] : inboxItems.filter((it) =>
     norm([it.texto, it.tipo, it.contexto_usuario, (it.tags || []).join(" "), (it.subjects || []).join(" ")].join(" ")).includes(q)
@@ -439,16 +452,6 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // filtran una vez acá y así ninguna lista derivada las arrastra.
   const sinLeer = useMemo(() => (todas || []).filter((r) => (r.pendiente || []).length && !ocultarMem(r)),
     [todas, oculto, proyectos]);
-  // los filtros por tipo, proyecto y candado se aplican UNA vez acá: todas las
-  // vistas derivan de `visibles`
-  const pasaTipo = (r) => !tipos.length || tipos.includes(tipoDe(r));
-  // Proyecto · tema · tag: los tres chips de arriba acotan TODO lo que Memory
-  // muestra, no solo el buscador — son los mismos controles, siempre a la vista.
-  // Sirven igual para memorias, items de inbox y sesiones: los tres traen
-  // `subjects`, y de ahí sale el proyecto igual que siempre.
-  const pasaSubTag = (r) => (!fTag || (r.tags || []).includes(fTag))
-    && (!fSub || (r.subjects || []).some((x) => x === fSub || String(x).startsWith(fSub + "/")));
-  const pasaFiltros = (r) => (!fProy || proyectoDe(r) === fProy) && pasaSubTag(r);
   const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaFiltros(r) && !ocultarMem(r)),
     [todas, tipos, oculto, proyectos, fProy, fSub, fTag]);
   // …salvo cuando el subject elegido YA es un proyecto (vista Proyectos): ahí el

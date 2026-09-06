@@ -1067,10 +1067,17 @@ def buscar_memorias(root: Path, texto: str = "", tag: str = "", subject: str = "
 
     ponytail: el resto de filtros sigue en scan lineal del frontmatter.
     """
+    # Una consulta de 1-2 caracteres contra el CUERPO devuelve todo —cualquier
+    # memoria tiene una "r"— y el omnibox parecía no reaccionar al escribir
+    # (reportado 2026-09-06). Con menos de 3 caracteres se mira solo donde mira
+    # primero cualquier buscador: título, tags, subjects y lugar.
+    corta = len(texto.strip()) < 3
     rango: dict[str, int] = {}
-    if texto and orden == "relevancia":
+    if texto and orden == "relevancia" and not corta:
         try:
             from . import indice
+            # solo para ORDENAR (ver el filtro literal más abajo): lo que el
+            # híbrido pone arriba sale arriba, el resto queda por fecha
             rango = {s: i for i, (s, _) in enumerate(indice.buscar_hibrida(root, texto, k=20))}
         except Exception:
             pass
@@ -1101,12 +1108,28 @@ def buscar_memorias(root: Path, texto: str = "", tag: str = "", subject: str = "
             continue
         if sesion and str(m.get("sesion") or "") != sesion:
             continue
-        campos = " ".join([str(m.get("titulo", "")), post.content, str(m.get("lugar", "")),
-                           " ".join(str(x) for x in (m.get("tags") or [])),
-                           " ".join(str(x) for x in (m.get("subjects") or [])),
-                           " ".join(str(x) for x in (m.get("enlaces") or []))])
-        if texto and _norm(texto) not in _norm(campos) and p.stem not in rango:
-            continue
+        if texto:
+            cortos = " ".join([str(m.get("titulo", "")), str(m.get("lugar", "")),
+                               " ".join(str(x) for x in (m.get("tags") or [])),
+                               " ".join(str(x) for x in (m.get("subjects") or []))])
+            # El omnibox es un FILTRO y nada más: si la memoria no DICE lo que se
+            # escribió, no sale. El híbrido solo ORDENA lo que ya pasó el filtro
+            # — devuelve siempre sus vecinos más cercanos, tengan que ver o no
+            # (con este índice hasta "xyzzy" saca cinco), y mezclarlos con los
+            # literales hacía que escribir se sintiera como no filtrar
+            # (reportado 2026-09-06). La búsqueda por significado sigue viva
+            # donde manda: `buscar` (MCP/chat).
+            #
+            # `corta` mira por PRINCIPIO de palabra y solo en los campos cortos
+            # ("ro" encuentra Rooftop, no "barroco"): con 1-2 letras el cuerpo
+            # devolvía la Biblioteca entera y la pantalla parecía no reaccionar.
+            if corta:
+                pega = re.search(r"\b" + re.escape(_norm(texto)), _norm(cortos))
+            else:
+                pega = _norm(texto) in _norm(" ".join(
+                    [cortos, post.content, " ".join(str(x) for x in (m.get("enlaces") or []))]))
+            if not pega:
+                continue
         # ts: instante real de subida/actualización. `creada`/`actualizada` son
         # solo fecha, así que sin esto la UI no puede filtrar "última hora".
         out.append({"slug": p.stem, "titulo": m.get("titulo", p.stem), "fecha": fecha,
@@ -1124,8 +1147,9 @@ def buscar_memorias(root: Path, texto: str = "", tag: str = "", subject: str = "
                     "resumen": resumen_corto(post.content)})
     if orden == "titulo":
         out.sort(key=lambda e: _norm(str(e["titulo"])))
-    elif orden == "relevancia" and rango:
-        out.sort(key=lambda e: rango.get(e["slug"], 10**6))
+    elif orden == "relevancia" and texto:
+        # el ranking del híbrido decide el orden de los que pasaron el filtro
+        out.sort(key=lambda e: (rango.get(e["slug"], 10**6), -(e["ts"] or 0)))
     else:
         out.sort(key=lambda e: (e["cuando"] or e["fecha"]), reverse=True)
     return out

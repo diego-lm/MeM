@@ -194,6 +194,20 @@ def test_buscar_memorias_filtros(root):
     assert memoria.buscar_memorias(root, desde="2999-01-01") == []
 
 
+def test_omnibox_filtra_al_escribir(root):
+    """El buscador de Memory (orden=relevancia) es un FILTRO: lo que no dice lo
+    escrito no sale. Y con 1-2 letras se mira por principio de palabra en los
+    campos cortos — buscar "n" en el cuerpo devolvía la Biblioteca entera y la
+    pantalla parecía no reaccionar al escribir (reportado 2026-09-06)."""
+    memoria.guardar_entrada(root, "Rooftops de Bruselas", "Bares con vista.", ["Ocio"], tags=["rooftop"])
+    memoria.guardar_entrada(root, "Museo del barroco", "Sin relación.", ["Arte"], tags=["museo"])
+    omni = lambda q: {m["slug"] for m in memoria.buscar_memorias(root, texto=q, orden="relevancia")}
+    assert omni("rooftop") == {"rooftops-de-bruselas"}
+    assert omni("vista") == {"rooftops-de-bruselas"}          # el cuerpo cuenta con 3+ letras
+    assert omni("ro") == {"rooftops-de-bruselas"}             # principio de palabra, no "barroco"
+    assert omni("zzz") == set()
+
+
 def test_editar_entrada_reindexa_y_registra(root):
     memoria.guardar_entrada(root, "Nota IA", "Sobre agentes.", ["IA"])
     r = memoria.editar_entrada(root, "nota-ia", subjects=["Inmersivo"], nota="reclasificada")
