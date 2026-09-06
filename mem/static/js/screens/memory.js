@@ -36,6 +36,9 @@ const glifoVista = (i) => (VISTAS.find(([v]) => v === i) || [0, "▤"])[1];
 // valor por defecto, y le suma la palabra en cuanto filtra algo. Un tema y la
 // vista Temas comparten el ⊞ a propósito: son el mismo concepto.
 const G_SUB = "⊞", G_TAG = "#", G_TIPO = "⬚", G_FECHA = "◷", G_PROY = "◈";
+// cajón de las memorias sin el lugar que se está mirando: es un "lugar" más de
+// la lista, así que el drill de siempre lo abre sin una rama aparte
+const SIN_LUGAR = "-sin-lugar-";
 
 // De qué está hecha una memoria: nació en una sesión, trae un archivo, trae
 // enlaces, o es texto a secas. Sale de campos que la entrada ya guarda — no hay
@@ -124,7 +127,7 @@ const TIPO_MEDIA_EXT = { imagen: IMG_EXT, video: VID_EXT, audio: AUD_EXT };
  *  chat.js): la galería entera de la base, catalogada Y suelta (medios.py del
  *  server ya mezcla las dos). "Sesión abierta" solo aparece si hay una — Memory
  *  no tiene sesión propia. */
-function MediaTab({ lang, sesionActiva, proyecto, elegidos, onToggle, oculta, L }) {
+function MediaTab({ lang, sesionActiva, proyecto, elegidos, onToggle, oculta, L, slugsVis, hayFiltros }) {
   const [filtro, setFiltro] = useState(FILTRO_MEDIA_DEFAULT);
   const [items, setItems] = useState(null);
   const campo = (k) => (v) => setFiltro((p) => ({ ...p, [k]: v }));
@@ -146,7 +149,11 @@ function MediaTab({ lang, sesionActiva, proyecto, elegidos, onToggle, oculta, L 
   // Y la galería es la del proyecto donde uno está parado, igual que el resto de
   // Memory (pedido 2026-09-05): el server manda lo suyo MÁS lo público de los
   // demás — bien para buscar, mal para una vista que dice "Media" a secas.
+  // …y los chips de arriba también (pedido 2026-09-06): un medio catalogado sale
+  // si su memoria está entre las visibles; uno suelto —sin ficha, sin tags ni
+  // fecha propia— solo mientras no haya un filtro que no pueda cumplir.
   const medios = (items || []).filter((e) => !oculta(e) && (!proyecto || proyectoDe(e) === proyecto)
+    && (e.slug ? slugsVis.has(e.slug) : !hayFiltros)
     && (filtro.tipo === "todos" || TIPO_MEDIA_EXT[filtro.tipo].test(e.ruta)));
 
   return html`
@@ -301,7 +308,21 @@ const ventanaLabel = (id, lang) =>
   ({ h: "1 h", d: lang === "en" ? "1 day" : "1 día", s: lang === "en" ? "1 week" : "1 semana",
      t: lang === "en" ? "Anytime" : "Siempre" })[id];
 
+// Las dos fechas de una memoria, elegibles desde la vista Tiempo (pedido
+// 2026-09-06): "grabacion" = cuándo entró a MeM (capturado, o el mtime del
+// archivo); "contenido" = de cuándo habla lo que dice (`cuando`, lo único que
+// el procesador extrae del texto). Sin ese dato devuelve null y la memoria cae
+// en "Sin fecha" — inventarle el mtime sería mentir sobre el contenido.
+export const fechaSegun = (r, tipo) => {
+  const t = tipo === "grabacion"
+    ? Date.parse(r.capturado || "") || (r.ts ? r.ts * 1000 : NaN) || Date.parse(`${r.fecha || ""}T00:00:00`)
+    : Date.parse(r.cuando || "");
+  return Number.isFinite(t) ? t : null;
+};
+
 // Tiempo: hoy por horas, el resto de la semana por días, lo anterior por mes+año.
+// `lista` viene con `_t` (ms) ya resuelto por fechaSegun: el bloque y la línea
+// temporal miran la MISMA fecha que eligió el chip de arriba.
 function bloquesTiempo(lista, lang) {
   const loc = lang === "en" ? "en-US" : "es-ES";
   const ahora = new Date();
@@ -311,7 +332,7 @@ function bloquesTiempo(lista, lang) {
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   const g = new Map();
   for (const r of lista) {           // lista ya viene de más nueva a más vieja,
-    const d = instante(r);           // así que el primero de cada grupo lo ordena
+    const d = new Date(r._t);        // así que el primero de cada grupo lo ordena
     const [clave, etiq] = d >= hoy0
       ? [`h${d.getHours()}`, `${String(d.getHours()).padStart(2, "0")}:00`]
       : d >= lunes
@@ -341,7 +362,11 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const [lugarClic, setLugarClic] = useState(null);
   const [tiempoModo, setTiempoModo] = useState(0);   // Tiempo: 0 bloques · 1 línea temporal
   const [lugarModo, setLugarModo] = useState(0);     // Lugares: 0 lista · 1 mapa
-  const [capaCaptura, setCapaCaptura] = useState(true);  // mapa: capa "desde dónde lo anoté"
+  // QUÉ lugar y QUÉ fecha se está mirando (pedido 2026-09-06): una memoria tiene
+  // dos de cada uno —el del contenido y el de la captura— y antes se mezclaban
+  // (el mapa superponía las dos capas, la línea caía del `cuando` al mtime).
+  const [lugarTipo, setLugarTipo] = useState("contenido");   // contenido | captura
+  const [fechaTipo, setFechaTipo] = useState("contenido");   // contenido | grabacion
   const [geo, setGeo] = useState(null);              // /memory/map (se pide al abrir el mapa)
   const [resultados, setResultados] = useState(null); // memorias que matchean la query
   // Filtros del buscador (pedido 2026-09-05). Solo acotan resultados de
@@ -452,13 +477,18 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // filtran una vez acá y así ninguna lista derivada las arrastra.
   const sinLeer = useMemo(() => (todas || []).filter((r) => (r.pendiente || []).length && !ocultarMem(r)),
     [todas, oculto, proyectos]);
-  const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaFiltros(r) && !ocultarMem(r)),
-    [todas, tipos, oculto, proyectos, fProy, fSub, fTag]);
+  // TODAS las vistas (tarjetas, temas, lugares, tiempo, relaciones, media)
+  // derivan de esta lista: los cinco chips de arriba —proyecto, tema, tag, tipo
+  // y fecha— acotan lo que se ve, se mire como se mire (pedido 2026-09-06). La
+  // ventana de fecha entró acá: estaba solo en "Recientes" y las otras vistas
+  // seguían mostrando toda la base.
+  const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaFiltros(r) && enVentana(r) && !ocultarMem(r)),
+    [todas, tipos, oculto, proyectos, fProy, fSub, fTag, ventana]);
   // …salvo cuando el subject elegido YA es un proyecto (vista Proyectos): ahí el
   // filtro de arriba sobra y encima vaciaba la lista de todo proyecto que no
   // fuera el activo. Lo privado ajeno sigue afuera: eso lo acota el server.
-  const visiblesSinProy = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaSubTag(r) && !ocultarMem(r)),
-    [todas, tipos, oculto, proyectos, fSub, fTag]);
+  const visiblesSinProy = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaSubTag(r) && enVentana(r) && !ocultarMem(r)),
+    [todas, tipos, oculto, proyectos, fSub, fTag, ventana]);
   // Con texto manda el orden del server (relevancia); sin texto —el buscador
   // recién abierto— la base es todo lo accesible, que los mismos filtros acotan.
   const resultadosVis = useMemo(() => (q ? (resultados || []) : (todas || []).filter((r) => !(r.pendiente || []).length))
@@ -471,18 +501,67 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     const base = subjectClic.startsWith("Proyectos/") ? visiblesSinProy : visibles;
     return base.filter((r) => (r.subjects || []).some((x) => x === subjectClic || String(x).startsWith(subjectClic + "/")));
   }, [visibles, visiblesSinProy, subjectClic]);
-  const recientes = useMemo(() => visibles.filter(enVentana), [visibles, ventana]);
-  const bloques = useMemo(() => bloquesTiempo(
-    [...visibles].sort((a, b) => instante(b) - instante(a)), s.lang), [visibles, s.lang]);
-  const lugares = useMemo(() => {
+  // Temas: los contadores del árbol salen de lo VISIBLE, no del server —
+  // mostraban los números de toda la base mientras el resto de las vistas ya
+  // estaba filtrado (pedido 2026-09-06). Cada memoria suma en su path y en
+  // todos sus ancestros, igual que el sumaNodo del server.
+  const cuentaSub = useMemo(() => {
     const g = new Map();
-    for (const r of visibles) if (r.lugar) g.set(r.lugar, (g.get(r.lugar) || 0) + 1);
-    return [...g.entries()].sort((a, b) => b[1] - a[1]);
+    for (const r of visibles) {
+      for (const s2 of (r.subjects || [])) {
+        const partes = String(s2).split("/");
+        for (let i = 0; i < partes.length; i++) {
+          const path = partes.slice(0, i + 1).join("/");
+          g.set(path, (g.get(path) || 0) + 1);
+        }
+      }
+    }
+    return g;
   }, [visibles]);
-  const porLugar = useMemo(() => !lugarClic ? [] : visibles.filter((r) => r.lugar === lugarClic), [visibles, lugarClic]);
-  // slugs vedados por el candado: grafo/mapas los filtran (el server no sabe de privacidad)
-  const ocultas = useMemo(() => new Set((todas || []).filter(ocultarMem).map((r) => r.slug)),
-    [todas, oculto, proyectos]);
+  const cuenta = (path) => cuentaSub.get(path) || 0;
+
+  // Tiempo: cada memoria con la fecha que eligió el chip; las que no la tienen
+  // salen aparte, abajo, en vez de desaparecer o colarse con una fecha prestada.
+  const [conFecha, sinFecha] = useMemo(() => {
+    const con = [], sin = [];
+    for (const r of visibles) {
+      const t = fechaSegun(r, fechaTipo);
+      (t ? con : sin).push(t ? { ...r, _t: t } : r);
+    }
+    con.sort((a, b) => b._t - a._t);
+    return [con, sin];
+  }, [visibles, fechaTipo]);
+  const bloques = useMemo(() => bloquesTiempo(conFecha, s.lang), [conFecha, s.lang]);
+
+  // Lugares: el del contenido (`lugar`, de qué habla) o el de la captura
+  // (`lugar_captura`, desde dónde se anotó). Lo que no tenga el elegido va al
+  // cajón "Sin lugar", que es un chip más de la lista.
+  const lugarDe = (r) => String((lugarTipo === "captura" ? r.lugar_captura : r.lugar) || "");
+  const [lugares, sinLugar] = useMemo(() => {
+    const g = new Map(), sin = [];
+    for (const r of visibles) {
+      const l = lugarDe(r);
+      if (l) g.set(l, (g.get(l) || 0) + 1); else sin.push(r);
+    }
+    return [[...g.entries()].sort((a, b) => b[1] - a[1]), sin];
+  }, [visibles, lugarTipo]);
+  const porLugar = useMemo(() => !lugarClic ? []
+    : lugarClic === SIN_LUGAR ? sinLugar : visibles.filter((r) => lugarDe(r) === lugarClic),
+    [visibles, lugarClic, lugarTipo, sinLugar]);
+  // Lo que grafo y mapas NO dibujan. Antes era solo lo que tapaba el candado y
+  // por eso esas dos vistas ignoraban los chips; ahora es "todo lo que no está
+  // en visibles", así que filtran por lo mismo que el resto (pedido 2026-09-06).
+  const ocultas = useMemo(() => {
+    const vis = new Set(visibles.map((r) => r.slug));
+    return new Set((todas || []).filter((r) => !vis.has(r.slug)).map((r) => r.slug));
+  }, [todas, visibles]);
+
+  // Media obedece los mismos chips: lo catalogado se cruza por slug con
+  // `visibles`; lo suelto (un archivo de una sesión que todavía no es memoria)
+  // no tiene metadatos que cruzar, así que sale solo mientras no haya filtro de
+  // tema, tag, tipo ni fecha — filtrar por algo que no tiene sería mostrarlo igual.
+  const slugsVis = useMemo(() => new Set(visibles.map((r) => r.slug)), [visibles]);
+  const hayFiltros = !!(fSub || fTag || tipos.length || ventana !== "t");
 
   // el mapa geográfico se pide recién al abrirlo (geocodifica hasta 5 lugares nuevos por pasada)
   useEffect(() => {
@@ -492,6 +571,15 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const geoVisibles = useMemo(() => !geo ? [] : geo.lugares
     .map((l) => ({ ...l, memorias: l.memorias.filter((m) => !ocultas.has(m.slug)) }))
     .map((l) => ({ ...l, n: l.memorias.length })).filter((l) => l.n), [geo, ocultas]);
+  // Lugares nombrados que el mapa no puede poner: los del contenido que
+  // Nominatim no geocodificó (los dice el server) o, mirando capturas, los que
+  // se anotaron sin coordenadas. En los dos casos acotados a lo visible.
+  const sinGeo = useMemo(() => {
+    if (lugarTipo === "captura")
+      return [...new Set(visibles.filter((r) => r.lugar_captura && !r.coords_captura).map((r) => r.lugar_captura))];
+    const nombres = new Set(lugares.map(([l]) => l));
+    return (geo?.sin_geo || []).filter((l) => nombres.has(l));
+  }, [geo, lugares, visibles, lugarTipo]);
   // Desde dónde se capturó cada memoria: sale del propio /memory/search (las
   // coordenadas ya vienen en la ficha), así que no hace falta ni pedirle nada al
   // server ni geocodificar — y al armarse desde `visibles` respeta el candado de
@@ -678,24 +766,24 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
           ${vistaReal === V.REC && html`
             <!-- la ventana de fecha ahora es un chip de la fila de arriba: acá
                  solo queda el contador de lo que esa ventana deja pasar -->
-            <div style="${TITULO_SEC};margin-bottom:8px">${L.tMemories} · ${recientes.length}</div>
+            <div style="${TITULO_SEC};margin-bottom:8px">${L.tMemories} · ${visibles.length}</div>
             ${todas === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
-            ${todas && !recientes.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
-            ${fichas(recientes)}`}
+            ${todas && !visibles.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
+            ${fichas(visibles)}`}
 
           ${vistaReal === V.TEMAS && (subjectClic ? filtradas : html`
             ${arbol === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
-            ${(arbol || []).filter((g) => sumaNodo(g) > 0).map((g, gi) => {
+            ${(arbol || []).filter((g) => cuenta(g.nombre) > 0).map((g, gi) => {
               const dot = COLORES[gi % COLORES.length];
               const open = abierto === g.nombre;
-              const hijosConEntradas = g.hijos.filter((h) => sumaNodo(h) > 0);
+              const hijosConEntradas = g.hijos.filter((h) => cuenta(`${g.nombre}/${h.nombre}`) > 0);
               return html`
                 <div style="margin-bottom:10px">
                   <div role="button" tabindex="0" onClick=${() => setAbierto(open ? null : g.nombre)}
                        style="display:flex;align-items:center;gap:11px;padding:12px 13px;border-radius:var(--radius-md);cursor:pointer;background:${open ? `color-mix(in srgb, ${dot} ${s.theme === "dark" ? 18 : 10}%, var(--color-surface))` : "var(--color-surface)"};border:1px solid var(--color-divider);box-shadow:var(--shadow-sm)">
                     <span style="width:9px;height:9px;background:${dot};flex-shrink:0"></span>
                     <span style="flex:1;font-size:15px;font-weight:700;letter-spacing:.01em">${g.nombre}</span>
-                    <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.55">${sumaNodo(g)}</span>
+                    <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.55">${cuenta(g.nombre)}</span>
                     <span style="font-size:13px;opacity:.5;transform:rotate(${open ? 90 : 0}deg);transition:transform .3s">›</span>
                   </div>
                   ${open && html`
@@ -706,7 +794,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
                           <span style="flex:1;min-width:0">
                             <span style="display:block;font-size:14.5px">${h.nombre}</span>
                           </span>
-                          <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.5">${sumaNodo(h)}</span>
+                          <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.5">${cuenta(`${g.nombre}/${h.nombre}`)}</span>
                         </div>`)}
                       ${!hijosConEntradas.length && html`<div style="padding:10px 12px;font-size:12.5px;opacity:.5">—</div>`}
                     </div>`}
@@ -715,50 +803,62 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
 
           ${vistaReal === V.TIEMPO && html`
             ${todas === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
+            <!-- qué fecha se está mirando: la del contenido (de cuándo habla) o
+                 la de la grabación (cuándo entró a MeM) — pedido 2026-09-06 -->
+            <${ChipsModo} opciones=${[L.tFechaContenido, L.tFechaGrabacion]}
+                          valor=${fechaTipo === "grabacion" ? 1 : 0}
+                          onPick=${(i) => setFechaTipo(i ? "grabacion" : "contenido")} />
             <${ChipsModo} opciones=${s.lang === "en" ? ["Blocks", "Timeline"] : ["Bloques", "Línea"]}
                           valor=${tiempoModo} onPick=${setTiempoModo} />
             ${tiempoModo === 1 ? html`
-              <${TimelineGlobal} items=${visibles} lang=${s.lang} />
+              <${TimelineGlobal} items=${conFecha} lang=${s.lang} />
             ` : bloques.map((b) => html`
               <div style="${TITULO_SEC};margin:4px 0 8px;display:flex;align-items:center;gap:8px">
                 <span>${b.etiq}</span>
                 <span style="flex:1;height:1px;background:var(--color-divider)"></span>
                 <span style="opacity:.7">${b.lista.length}</span>
               </div>
-              ${fichas(b.lista)}`)}`}
+              ${fichas(b.lista)}`)}
+            <!-- lo que no tiene esa fecha no se pierde ni se inventa: va abajo -->
+            ${!!sinFecha.length && html`
+              <div style="${TITULO_SEC};margin:14px 0 8px;display:flex;align-items:center;gap:8px">
+                <span>${L.tSinFecha}</span>
+                <span style="flex:1;height:1px;background:var(--color-divider)"></span>
+                <span style="opacity:.7">${sinFecha.length}</span>
+              </div>
+              ${fichas(sinFecha)}`}`}
 
           ${vistaReal === V.LUGARES && (lugarClic ? html`
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
               <div role="button" tabindex="0" onClick=${() => setLugarClic(null)} style="font-family:var(--font-mono);font-size:11px;cursor:pointer;opacity:.6">‹ ${s.lang === "en" ? "back" : "volver"}</div>
-              <span style="font-size:12px;opacity:.7">${lugarClic} · ${porLugar.length}</span>
+              <span style="font-size:12px;opacity:.7">${lugarClic === SIN_LUGAR ? L.tSinLugar : lugarClic} · ${porLugar.length}</span>
             </div>
             ${!porLugar.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
             ${fichas(porLugar)}
           ` : html`
             ${todas === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
-            ${todas && !lugares.length && !capturas.length && html`<div style="opacity:.5;font-size:13px">${L.tNoPlaces}</div>`}
-            ${!!(lugares.length || capturas.length) && html`
+            <!-- QUÉ lugar: el del contenido (de qué habla la memoria) o el de la
+                 captura (desde dónde se anotó). Antes eran dos capas encimadas
+                 del mapa y la lista solo sabía del primero (pedido 2026-09-06). -->
+            <${ChipsModo} opciones=${[L.tLugarContenido, L.tCapturedAt]}
+                          valor=${lugarTipo === "captura" ? 1 : 0}
+                          onPick=${(i) => { setLugarClic(null); setLugarTipo(i ? "captura" : "contenido"); }} />
+            ${todas && !lugares.length && !sinLugar.length && html`<div style="opacity:.5;font-size:13px">${L.tNoPlaces}</div>`}
+            ${!!lugares.length && html`
               <${ChipsModo} opciones=${s.lang === "en" ? ["List", "Map"] : ["Lista", "Mapa"]}
                             valor=${lugarModo} onPick=${setLugarModo} />`}
-            ${lugarModo === 1 ? html`
-              ${geo === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
-              <!-- capa de capturas: se prende y se apaga, como la capa bitemporal
-                   de la línea temporal. Solo aparece el switch si hay algo que mostrar -->
-              ${!!capturas.length && html`
-                <div role="button" tabindex="0" onClick=${() => setCapaCaptura(!capaCaptura)}
-                     style="display:inline-flex;align-items:center;gap:8px;margin-bottom:10px;height:32px;padding:0 12px;cursor:pointer;background:var(--color-surface);border:1px solid var(--color-divider);opacity:${capaCaptura ? 1 : 0.5}">
-                  <span style="color:var(--color-accent-2);font-size:13px">◇</span>
-                  <span style="font-size:12.5px">${L.tCaptureLayer}</span>
-                  <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.55">${capturas.length}</span>
-                </div>`}
-              ${!!(geoVisibles.length || (capaCaptura && capturas.length)) && html`
-                <${GeoMap} lugares=${geoVisibles} capturas=${capaCaptura ? capturas : []} />`}
-              ${geo && !geoVisibles.length && !capturas.length && html`
-                <div style="opacity:.5;font-size:13px">${s.lang === "en" ? "No geocoded places yet." : "Todavía no hay lugares geocodificados."}</div>`}
-              ${!!(geo?.sin_geo || []).length && html`
+            ${lugarModo === 1 && !!lugares.length ? html`
+              ${lugarTipo === "contenido" && geo === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
+              ${lugarTipo === "captura" ? html`
+                ${!!capturas.length && html`<${GeoMap} lugares=${[]} capturas=${capturas} />`}
+              ` : html`
+                ${!!geoVisibles.length && html`<${GeoMap} lugares=${geoVisibles} capturas=${[]} />`}
+                ${geo && !geoVisibles.length && html`
+                  <div style="opacity:.5;font-size:13px">${s.lang === "en" ? "No geocoded places yet." : "Todavía no hay lugares geocodificados."}</div>`}`}
+              ${!!sinGeo.length && html`
                 <div style="${TITULO_SEC};margin:14px 0 8px">${s.lang === "en" ? "No coordinates" : "Sin coordenadas"}</div>
                 <div style="display:flex;flex-wrap:wrap;gap:8px">
-                  ${geo.sin_geo.map((lugar) => html`
+                  ${sinGeo.map((lugar) => html`
                     <div role="button" tabindex="0" onClick=${() => { setLugarModo(0); setLugarClic(lugar); }}
                          style="height:34px;padding:0 13px;border-radius:var(--radius-md);display:flex;align-items:center;gap:7px;cursor:pointer;background:var(--color-surface);border:1px dashed var(--color-divider)">
                       <span style="font-size:12.5px;opacity:.8">◌ ${lugar}</span>
@@ -769,16 +869,26 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
               ${lugares.map(([lugar, n]) => html`
                 <div role="button" tabindex="0" onClick=${() => setLugarClic(lugar)}
                      style="height:38px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--color-surface);border:1px solid var(--color-divider);box-shadow:var(--shadow-sm)">
-                  <span style="font-size:13.5px">◍ ${lugar}</span>
+                  <span style="font-size:13.5px">${lugarTipo === "captura" ? "◇" : "◍"} ${lugar}</span>
                   <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.55">${n}</span>
                 </div>`)}
-            </div>`}`)}
+            </div>`}
+            <!-- las que no tienen ESE lugar: un cajón más, no un vacío mudo -->
+            ${!!sinLugar.length && html`
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+                <div role="button" tabindex="0" onClick=${() => setLugarClic(SIN_LUGAR)}
+                     style="height:38px;padding:0 14px;border-radius:var(--radius-md);display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--color-bg);border:1px dashed var(--color-divider)">
+                  <span style="font-size:13.5px;opacity:.75">◌ ${L.tSinLugar}</span>
+                  <span style="font-family:var(--font-mono);font-size:10.5px;opacity:.55">${sinLugar.length}</span>
+                </div>
+              </div>`}`)}
 
           ${vistaReal === V.GRAFO && html`<${GraphView} lang=${s.lang} ocultas=${ocultas} />`}
 
           ${vistaReal === V.MEDIA && html`
             <${MediaTab} lang=${s.lang} sesionActiva=${s.sesionActiva} proyecto=${proyecto}
-                         elegidos=${elegidos} L=${L} onToggle=${alternarSeleccion} oculta=${ocultarMem} />`}
+                         elegidos=${elegidos} L=${L} onToggle=${alternarSeleccion} oculta=${ocultarMem}
+                         slugsVis=${slugsVis} hayFiltros=${hayFiltros} />`}
 
           ${vistaReal === V.PEND && html`
             ${!!sinLeer.length && html`

@@ -27,7 +27,10 @@ const SEP = 78;                                   // px mínimos entre etiquetas
 const CARRILES = 5;
 const DESFASE_MIN = 2 * DIA;                      // capturado vs. cuando: menos que esto no se dibuja
 
-const tsDe = (r) => Date.parse(r.cuando || r.fecha) || null;
+// `_t` = la fecha que eligió el chip de la vista Tiempo (contenido o
+// grabación); sin él, la de siempre. El eje se estira entre la primera y la
+// última de las que llegan, así que cambiar de fecha reencuadra la línea sola.
+const tsDe = (r) => r._t || Date.parse(r.cuando || r.fecha) || null;
 const corto = (s) => (s.length > 24 ? s.slice(0, 23) + "…" : s);
 
 export function TimelineGlobal({ items, lang }) {

@@ -29,6 +29,19 @@ const RADIO = { centro: 34, memoria: 30, idea: 26, subject: 14, lugar: 14, tag: 
 // Nodos-eje: por qué dos memorias están conectadas. Cada uno es una capa que se
 // prende y se apaga; memoria/centro/idea no son ejes y no tienen capa.
 const EJES = ["subject", "lugar", "tag"];
+// POR QUÉ se conectan dos memorias, cada motivo con su color — el mismo en la
+// arista, en el nodo-eje y en el chip que lo prende (pedido 2026-09-06): antes
+// las cinco capas se dibujaban en dos rojos casi iguales y el único modo de
+// saber qué era cada línea era apagar capas de a una. Hexadecimales y no
+// variables de tema a propósito: la paleta de MeM es mono-roja y cinco rojos no
+// se distinguen; estos cinco tonos leen igual en claro y en oscuro.
+const REL = {
+  subject: { color: "#b2622d", glifo: "—" },
+  tag: { color: "#7a6f9b", glifo: "○" },
+  lugar: { color: "#4f7d68", glifo: "◇" },
+  wikilink: { color: "#c0392b", glifo: "⇄" },
+  semantico: { color: "#4d7f95", glifo: "┈" },
+};
 const GRADO_TODO = 4;   // el tope del slider = sin filtro de parentesco
 
 function Chip({ on, onClick, children }) {
@@ -124,6 +137,23 @@ export function GraphView({ lang, ocultas, slugs = null, extra = null, onNodo = 
       ns = ns.filter((n) => alcance.has(n.id));
       ids = new Set(ns.map((n) => n.id));
       ls = ls.filter((a) => ids.has(a.a) && ids.has(a.b));
+    }
+    // Un eje (tema, lugar, tag) al que ya no le cuelga ninguna memoria es
+    // esqueleto flotando: los ejes vienen de toda la base, así que al filtrar
+    // —por los chips de Memory o por el candado— quedaban ahí sin nada
+    // (pedido 2026-09-06). Se cae todo lo que no se alcanza desde una memoria.
+    {
+      const ady = new Map();
+      const anota = (a, b) => ady.set(a, [...(ady.get(a) || []), b]);
+      for (const a of ls) { anota(a.a, a.b); anota(a.b, a.a); }
+      const vivos2 = new Set(ns.filter((n) => !EJES.includes(n.tipo)).map((n) => n.id));
+      let frente = [...vivos2];
+      while (frente.length) {
+        frente = frente.flatMap((id) => ady.get(id) || []).filter((id) => !vivos2.has(id));
+        frente.forEach((id) => vivos2.add(id));
+      }
+      ns = ns.filter((n) => vivos2.has(n.id));
+      ls = ls.filter((a) => vivos2.has(a.a) && vivos2.has(a.b));
     }
     ns = ns.map((n) => {
       const p = previos.get(n.id);
@@ -232,13 +262,25 @@ export function GraphView({ lang, ocultas, slugs = null, extra = null, onNodo = 
   const rotulaEje = (n) => n.tipo !== "subject" || !n.id.slice(2).includes("/")
     || vecinos.has(n.id) || (q && coincide(n));
   const rotulaMemoria = (n) => t.k >= 0.95 || vecinos.has(n.id) || (q && coincide(n));
-  const estiloArista = (l) =>
-    l.tipo === "wikilink" ? "stroke:var(--color-accent);stroke-width:1.7"
-    : l.tipo === "semantico" ? `stroke:var(--color-accent-2);stroke-width:1.1;stroke-dasharray:4 3;opacity:${(0.18 + (l.peso || 0.6) * 0.4).toFixed(2)}`
-    : l.tipo === "sesion" ? "stroke:var(--color-accent);stroke-width:1.2;opacity:.5"
-    : l.tipo === "lugar" ? "stroke:var(--color-accent-2);stroke-width:1;opacity:.45"
-    : l.tipo === "tag" ? "stroke:color-mix(in srgb,var(--color-accent) 45%,transparent);stroke-width:1;stroke-dasharray:2 3"
-    : "stroke:color-mix(in srgb,var(--color-text) 14%,transparent);stroke-width:1";
+  const estiloArista = (l) => {
+    const c = REL[l.tipo]?.color;
+    return l.tipo === "semantico" ? `stroke:${c};stroke-width:1.2;stroke-dasharray:4 3;opacity:${(0.25 + (l.peso || 0.6) * 0.45).toFixed(2)}`
+      : l.tipo === "tag" ? `stroke:${c};stroke-width:1.1;stroke-dasharray:2 3;opacity:.6`
+      : l.tipo === "wikilink" ? `stroke:${c};stroke-width:1.8`
+      : l.tipo === "sesion" ? "stroke:var(--color-accent);stroke-width:1.2;opacity:.5"
+      : c ? `stroke:${c};stroke-width:1.2;opacity:.55`
+      : "stroke:color-mix(in srgb,var(--color-text) 14%,transparent);stroke-width:1";
+  };
+  // Qué dice el hover: el TIPO de relación y CUÁL es — el tema, el lugar o el
+  // tag que las junta; entre memorias, el enlace o cuánto se parecen.
+  const nombreRel = { subject: L.tGraphTopics, tag: L.tGraphTags, lugar: L.tGraphPlaces,
+                      wikilink: L.tGraphLinks, semantico: L.tGraphSim };
+  const tituloArista = (l) => {
+    const eje = EJES.includes(l.source.tipo) ? l.source : EJES.includes(l.target.tipo) ? l.target : null;
+    const cual = eje ? eje.id.slice(2)
+      : l.tipo === "semantico" ? `${Math.round((l.peso || 0) * 100)}%` : "";
+    return `${nombreRel[l.tipo] || l.tipo}${cual ? ` · ${cual}` : ""} — ${l.source.label} ↔ ${l.target.label}`;
+  };
   const corto = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
   const etiquetaFoco = nodos.current.find((n) => n.id === foco)?.label || String(foco || "").slice(2);
 
@@ -259,11 +301,9 @@ export function GraphView({ lang, ocultas, slugs = null, extra = null, onNodo = 
         <!-- POR QUÉ se conectan dos memorias: cada motivo es una capa que se
              prende y se apaga (pedido 2026-08-09) -->
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0">
-          ${[["subject", "—", L.tGraphTopics], ["tag", "○", L.tGraphTags], ["lugar", "◇", L.tGraphPlaces],
-             ["wikilink", "⇄", L.tGraphLinks], ["semantico", "┈", L.tGraphSim]]
-            .map(([k, glifo, txt]) => html`
-              <${Chip} key=${k} on=${capas[k]} onClick=${() => setCapas((p) => ({ ...p, [k]: !p[k] }))}>
-                ${glifo} ${txt}<//>`)}
+          ${Object.keys(REL).map((k) => html`
+            <${Chip} key=${k} on=${capas[k]} onClick=${() => setCapas((p) => ({ ...p, [k]: !p[k] }))}>
+              <span style="color:${REL[k].color};font-size:11.5px">${REL[k].glifo}</span> ${nombreRel[k]}<//>`)}
         </div>
         <!-- cuánto se dibuja: saltos desde el centro y desde qué similitud cuenta
              una arista semántica. El de parentesco solo existe donde hay centro
@@ -280,8 +320,15 @@ export function GraphView({ lang, ocultas, slugs = null, extra = null, onNodo = 
         <svg width="100%" height="100%" style="display:block;touch-action:none;cursor:grab" ...${eventos}>
           <g transform="translate(${medida.w / 2 + t.x} ${medida.h / 2 + t.y}) scale(${t.k})">
             ${links.current.map((l) => html`
-              <line x1=${l.source.x} y1=${l.source.y} x2=${l.target.x} y2=${l.target.y}
-                    style="${estiloArista(l)};${apagado(l.source.id) || apagado(l.target.id) ? "opacity:.05" : ""}" />`)}
+              <g style="${apagado(l.source.id) || apagado(l.target.id) ? "opacity:.05" : ""}">
+                <title>${tituloArista(l)}</title>
+                <!-- una línea de 1px no se puede apuntar con el mouse: la gruesa
+                     transparente es la que recibe el hover y muestra el título -->
+                <line x1=${l.source.x} y1=${l.source.y} x2=${l.target.x} y2=${l.target.y}
+                      style="stroke:transparent;stroke-width:9" />
+                <line x1=${l.source.x} y1=${l.source.y} x2=${l.target.x} y2=${l.target.y}
+                      style="${estiloArista(l)};pointer-events:none" />
+              </g>`)}
             ${nodos.current.map((n) => html`
               <g transform="translate(${n.x} ${n.y})" data-nodrag
                  style="opacity:${apagado(n.id) ? 0.12 : 1};transition:opacity .25s;cursor:pointer"
@@ -311,14 +358,14 @@ export function GraphView({ lang, ocultas, slugs = null, extra = null, onNodo = 
                        rombo=lugar, anillo=tag (la paleta es mono-rojo) -->
                   ${n.tipo === "lugar" ? html`
                     <rect x="-4" y="-4" width="8" height="8" transform="rotate(45)"
-                          style="fill:none;stroke:var(--color-accent-2);stroke-width:1.6">
-                      <title>${n.label}</title></rect>`
+                          style="fill:none;stroke:${REL.lugar.color};stroke-width:1.6">
+                      <title>${nombreRel.lugar} · ${n.label}</title></rect>`
                     : n.tipo === "tag" ? html`
-                    <circle r="4.5" style="fill:none;stroke:color-mix(in srgb,var(--color-accent) 70%,transparent);stroke-width:1.6">
-                      <title>${n.label}</title></circle>`
+                    <circle r="4.5" style="fill:none;stroke:${REL.tag.color};stroke-width:1.6">
+                      <title>${nombreRel.tag} · ${n.label}</title></circle>`
                     : html`
-                    <circle r="4.5" style="fill:color-mix(in srgb,var(--color-text) 45%,transparent)">
-                      <title>${n.id.slice(2)}</title></circle>`}
+                    <circle r="4.5" style="fill:${REL.subject.color};opacity:.75">
+                      <title>${nombreRel.subject} · ${n.id.slice(2)}</title></circle>`}
                   ${rotulaEje(n) && html`
                     <text y="-8" text-anchor="middle"
                           style="font-family:var(--font-mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;fill:var(--color-text);opacity:.55;pointer-events:none">
