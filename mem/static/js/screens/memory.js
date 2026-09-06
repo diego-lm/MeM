@@ -402,7 +402,10 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     // el procesador de fondo avisa cada vez que termina una memoria: con Memory
     // abierta la lista y el contador se ponen al día solos (pedido 2026-08-08)
     return onMemoriasCambian(() => cargarMemorias());
-  }, [s.proyecto]);
+    // `oculto` en las dependencias: el server manda distinto según el candado
+    // (X-Privado), así que abrirlo o cerrarlo obliga a rehacer las consultas —
+    // si no, había que salir de la pantalla y volver (reportado 2026-09-06).
+  }, [s.proyecto, oculto]);
   // cambiar de proyecto en el sidebar arrastra el de Memory; al revés no
   useEffect(() => setFProy(String(s.proyecto || "")), [s.proyecto]);
 
@@ -514,6 +517,9 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const proyectosVis = proyectos.filter((p) => !oculto || !p.privado);
   const proyecto = fProy;    // la galería mira lo mismo que el resto de Memory
   const proyPriv = (n) => proyectos.some((p) => p.nombre === n && p.privado);
+  // cerrar el candado con el filtro puesto en un proyecto privado dejaba su
+  // nombre escrito en el chip: se vuelve a "Todos los proyectos".
+  useEffect(() => { if (oculto && proyPriv(fProy)) setFProy(""); }, [oculto, proyectos, fProy]);
 
   async function reprocesar(slugs) {
     if (reproc) return;

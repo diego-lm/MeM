@@ -61,7 +61,8 @@ def auth(authorization: str | None = Header(default=None)):
         raise HTTPException(401, "token inválido")
 
 
-def parado_en(x_proyecto: str | None = Header(default=None)) -> str | None:
+def parado_en(x_proyecto: str | None = Header(default=None),
+              x_privado: str | None = Header(default=None)) -> str | None:
     """Desde qué proyecto se hace esta consulta (pedido 2026-08-12). Lo manda la
     app en TODAS sus llamadas (api.js lo pone en las cabeceras, así que ninguna
     pantalla tiene que acordarse) y decide una sola cosa: lo de un proyecto
@@ -72,7 +73,15 @@ def parado_en(x_proyecto: str | None = Header(default=None)) -> str | None:
     Ausente (MCP, curl, un shell viejo cacheado) y `X-Proyecto: -` ("Todo", la
     Biblioteca compartida) son LO MISMO para memoria.accesible: solo lo público
     (pedido 2026-09-05). El endpoint MCP por HTTP y el CLI validan una clave
-    aparte para entrar a un proyecto privado sin esta cabecera."""
+    aparte para entrar a un proyecto privado sin esta cabecera.
+
+    `X-Privado: 1` es el candado de la app abierto —o sea, el usuario ya puso la
+    huella en ESTE aparato— y entonces se ve todo lo privado, no solo lo del
+    proyecto donde está parado (pedido 2026-09-06). Solo lo manda la app, y la
+    API ya exige su token: el muro del proyecto sigue siendo el único filtro
+    para MCP, CLI y cualquier otro cliente."""
+    if x_privado == "1":
+        return memoria.CANDADO_ABIERTO
     if x_proyecto is None:
         return None
     return "" if x_proyecto.strip() == "-" else x_proyecto.strip()
@@ -563,8 +572,12 @@ def get_attach(ruta: str):
 
 
 @app.get("/inbox", dependencies=[Depends(auth)])
-def get_inbox():
-    return memoria.inbox_listar(cfg["hamuq"])
+def get_inbox(proyecto: str | None = Depends(parado_en)):
+    # el inbox es tan privado como lo que sale de él: una captura de un proyecto
+    # privado no viaja a un proyecto público (mismo muro que /sessions)
+    privs = memoria.privados(cfg["hamuq"])
+    return [it for it in memoria.inbox_listar(cfg["hamuq"])
+            if memoria.accesible(it, proyecto, privs)]
 
 
 @app.patch("/inbox/{iid}", dependencies=[Depends(auth)])

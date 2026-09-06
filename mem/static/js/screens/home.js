@@ -116,11 +116,12 @@ export function Home() {
   const proyectosTodos = useProyectos();
   const privs = privadosDe(proyectosTodos);
   const esPriv = (ses) => esSesionPrivada(ses, privs);
-  // Dos candados distintos: el del celular (arriba) tapa TODO lo privado hasta
-  // verificar; este otro es la regla del 2026-08-12 y vale también en escritorio
-  // — lo privado no sale de su proyecto, ni siquiera pidiendo "Todos".
-  const fuera = (ses) => esPriv(ses) && String(ses.proyecto || "") !== proyecto;
-  const ocultar = (ses) => (oculto && (!proyectosListos() || esPriv(ses))) || fuera(ses);
+  // Un solo criterio: el candado. La regla "lo privado no sale de su proyecto"
+  // la aplica el SERVER (memoria.accesible) y se le pasa el candado abierto en
+  // X-Privado; repetirla acá hacía que, ya verificado y pidiendo "Todos los
+  // proyectos", las sesiones privadas siguieran sin aparecer (reportado
+  // 2026-09-06).
+  const ocultar = (ses) => oculto && (!proyectosListos() || esPriv(ses));
   // dictar también es "decirle algo al asistente": enciende el ↵ igual que teclear
   const dictado = useDictado(s.voiceLang || (s.lang === "en" ? "en-US" : "es-ES"),
     (t) => { setTexto((p) => (p ? p + " " : "") + t); setManual(true); });
@@ -134,6 +135,11 @@ export function Home() {
   const enTriaje = conv.length > 0;
 
   useEffect(() => setFProy(String(s.proyecto || "")), [s.proyecto]);   // sidebar → buscador, no al revés
+  // ...y si el candado se cierra con un proyecto privado elegido, su nombre no
+  // puede quedar escrito en el chip: vuelve a "Todos los proyectos".
+  useEffect(() => {
+    if (oculto && proyectosTodos.some((p) => p.privado && p.nombre === fProy)) setFProy("");
+  }, [oculto, proyectosTodos, fProy]);
   useEffect(() => { get("/modes").then(setModos).catch(() => {}); }, []);
 
   // el buscador carga las listas la primera vez que se usa (foco o texto)
@@ -143,7 +149,9 @@ export function Home() {
     if (!lista) return;
     get("/sessions").then(setSesiones).catch(() => setSesiones([]));
     get("/sessions?archivadas=1").then(setArchivadas).catch(() => {});
-  }, [lista, s.proyecto]);
+    // ...y al abrir o cerrar el candado: lo privado sale del server o no según
+    // esté abierto, así que la lista de antes ya no sirve.
+  }, [lista, s.proyecto, oculto]);
 
   // cerrar el panel es un clic AFUERA, no un blur: el foco se pierde con
   // cualquier re-render (y ahí la lista se cerraba sola — bug reportado).

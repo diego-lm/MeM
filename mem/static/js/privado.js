@@ -88,6 +88,12 @@ async function verificarDispositivo() {
   try { await registrar(challenge); return true; } catch { return false; }
 }
 
+/** ¿El candado está abierto AHORA? Lo pregunta api.js en cada llamada para
+ *  mandar `X-Privado: 1`: sin eso, el server sigue tapando lo privado de los
+ *  otros proyectos aunque el usuario ya se haya verificado, y buscar "todos los
+ *  proyectos" no traía nada privado (reportado 2026-09-06). */
+export const candadoAbierto = () => abierto();
+
 export async function desbloquear() {
   if (await verificarDispositivo()) fijar(Date.now() + VENTANA);
 }

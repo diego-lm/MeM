@@ -333,6 +333,14 @@ def un_proyecto(subjects: list[str] | None) -> list[str]:
     return [s for s in subjects if not _bajo(s, GRUPO_PROYECTOS) or _bajo(s, primero)]
 
 
+# Quien ya se verificó ve TODO lo privado, no solo lo del proyecto donde está
+# parado (pedido 2026-09-06): la app lo manda como `X-Privado: 1` cuando el
+# candado está abierto. Antes, con el candado abierto pero parado en un proyecto
+# público, buscar "todos los proyectos" seguía sin traer nada privado — el muro
+# del server no se enteraba de que el usuario había puesto la huella.
+CANDADO_ABIERTO = "*"
+
+
 def accesible(meta: dict, proyecto: str | None, privs: set[str]) -> bool:
     """¿Se ve esta memoria, sesión o captura estando parado en `proyecto`?
 
@@ -342,9 +350,12 @@ def accesible(meta: dict, proyecto: str | None, privs: set[str]) -> bool:
 
     `proyecto=None` (MCP/CLI sin contexto) y `proyecto=""` ("Todo", la
     Biblioteca compartida) son LO MISMO: solo lo público. Leer dentro de un
-    proyecto privado exige estar parado en él — la clave para MCP/CLI la valida
-    el llamador antes de pasar `proyecto`, no esta función.
+    proyecto privado exige estar parado en él — o traer el candado abierto
+    (`CANDADO_ABIERTO`), que es la app después de la huella. La clave para
+    MCP/CLI la valida el llamador antes de pasar `proyecto`, no esta función.
     """
+    if proyecto == CANDADO_ABIERTO:
+        return True
     p = _norm(proyecto_de(meta))
     return not p or p not in privs or p == _norm(proyecto or "")
 
@@ -359,7 +370,7 @@ def entradas_ocultas(root: Path, proyecto: str | None) -> set[str]:
     """
     privs = privados(root)
     d = root / ENTRADAS
-    if not privs or not d.exists():
+    if not privs or not d.exists() or proyecto == CANDADO_ABIERTO:
         return set()
     return {p.stem for p in d.glob("*.md")
             if not accesible(frontmatter.load(p).metadata, proyecto, privs)}
@@ -371,7 +382,7 @@ def paths_ocultos(root: Path, proyecto: str | None) -> set[str]:
     proyecto privado son tan privadas como las memorias que salgan de ellas."""
     privs = privados(root)
     out = {f"{ENTRADAS}/{s}.md" for s in entradas_ocultas(root, proyecto)}
-    if not privs:
+    if not privs or proyecto == CANDADO_ABIERTO:
         return out
     inbox = root / "07_Inbox"
     if inbox.exists():

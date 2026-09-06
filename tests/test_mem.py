@@ -373,6 +373,11 @@ def test_destilado_hereda_privacidad_del_proyecto(root):
     assert not memoria.accesible(priv, "Casa nueva", privs)   # desde otro proyecto, no
     assert not memoria.accesible(priv, "", privs)        # "Todo" es solo lo público
     assert not memoria.accesible(priv, None, privs)      # MCP/CLI sin proyecto: solo lo público
+    # ...salvo la app con el candado abierto (X-Privado: 1 → CANDADO_ABIERTO):
+    # ahí se ve todo lo privado, esté uno parado donde esté (pedido 2026-09-06)
+    assert memoria.accesible(priv, memoria.CANDADO_ABIERTO, privs)
+    assert not memoria.entradas_ocultas(root, memoria.CANDADO_ABIERTO)
+    assert not memoria.paths_ocultos(root, memoria.CANDADO_ABIERTO)
 
     # una sesión SIN proyecto no se acota: no hay proyecto al que pertenecer
     memoria.sincronizar_sesion_inbox(root, "2026-08-31_100500_suelta", "[Diego]\nhola")

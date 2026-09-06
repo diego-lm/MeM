@@ -1,6 +1,7 @@
 // Cliente HTTP: fetch JSON, lector SSE, y la cola offline de capturas
 // ("cero pérdida" — spec §8.1: toda captura persiste local antes de la red).
 import { getState, setState } from "./state.js";
+import { candadoAbierto } from "./privado.js";
 
 function headers(extra) {
   const token = localStorage.getItem("mem.token") || "";
@@ -10,7 +11,13 @@ function headers(extra) {
   // que acordarse de mandarlo. El server lo usa para una sola cosa: lo privado
   // de otro proyecto no se ve. "-" = Sin proyecto (una cabecera vacía no viaja
   // distinto de una ausente, y ausente significa "sin contexto": MCP, curl).
+  // X-Privado: el candado de ESTE aparato, abierto (o sea, ya hubo huella). El
+  // muro del server acota lo privado al proyecto donde uno está parado, que es
+  // lo correcto para el MCP y el CLI; para la app, verificarse es justamente
+  // pedir verlo todo. Sin esta cabecera había que pararse en cada proyecto
+  // privado para que su contenido apareciera en la búsqueda (pedido 2026-09-06).
   return { "Content-Type": "application/json", "X-Proyecto": getState().proyecto || "-",
+           ...(candadoAbierto() ? { "X-Privado": "1" } : {}),
            ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
 }
 

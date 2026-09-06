@@ -550,17 +550,16 @@ export function Alpaca({ alto = 96, clase = "", estilo = "" }) {
  *  dropdown de acá abajo. Se recarga al cambiar de pantalla (mismo patrón que
  *  useInboxPend): no hay push del server, así que un turno nuevo/movido se ve
  *  recién al navegar — vale para una app de un solo usuario. */
-function useSesionesSidebar(screen, proyecto) {
+function useSesionesSidebar(screen, proyecto, candado) {
   const [sesiones, setSesiones] = useState(null);
-  // `proyecto` en las dependencias y no solo la pantalla: /sessions responde
-  // según desde dónde se pregunta (las de un proyecto privado no salen de él),
-  // así que al mudarse de proyecto la lista de antes ya no vale — se veía
-  // "Sin sesiones acá" recién entrado a un proyecto privado.
+  // `proyecto` y el candado en las dependencias y no solo la pantalla:
+  // /sessions responde según desde dónde se pregunta y según X-Privado, así que
+  // mudarse de proyecto —o abrir el candado— deja vieja la lista de antes.
   useEffect(() => {
     let vivo = true;
     get("/sessions").then((r) => { if (vivo) setSesiones(r); }).catch(() => {});
     return () => { vivo = false; };
-  }, [screen, proyecto]);
+  }, [screen, proyecto, candado]);
   return sesiones;
 }
 
@@ -571,12 +570,12 @@ export function Sidebar({ EditorProyectos }) {
   const proyectosTodos = useProyectos();
   const privs = privadosDe(proyectosTodos);
   const proyecto = String(s.proyecto || "");
-  const sesiones = useSesionesSidebar(s.screen, proyecto);
   const [gestionando, setGestionando] = useState(false);
   // el candado también acá: parado en un proyecto privado, esta lista era la
   // única que seguía mostrando sus títulos con el candado puesto — en compu no
   // se notaba porque hasta v110 en compu no había candado (reportado 2026-09-06).
   const { oculto } = usePrivado();
+  const sesiones = useSesionesSidebar(s.screen, proyecto, oculto);
   const propias = (sesiones || [])
     .filter((x) => String(x.proyecto || "") === proyecto && !(oculto && esSesionPrivada(x, privs)))
     .sort((a, b) => String(b.actualizada || "").localeCompare(String(a.actualizada || "")));

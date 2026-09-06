@@ -138,7 +138,8 @@ export function Inbox() {
       const pedido = s.param && its.find((x) => x.id === s.param);
       if (pedido && !ocultarMem(pedido)) setAbierto(pedido);
     }).catch(() => setItems([]));
-  }, []);
+    // el candado cambia lo que el server manda (X-Privado), no solo lo que se pinta
+  }, [oculto]);
 
   /** El ciclo capturar→procesar→memoria se cierra acá, sin ir a Ajustes. */
   async function procesarAhora() {
