@@ -1,7 +1,8 @@
 import { html, render, useEffect } from "../vendor/preact-htm.js";
-import { useStore, getState, go, reemplazar } from "./state.js";
+import { useStore, getState, go, reemplazar, setState, GENERAL } from "./state.js";
 import { get, post } from "./api.js";
-import { TabBar, Sidebar } from "./ui.js";
+import { TabBar, Sidebar, ControlesGlobales, useAutoActualizar, useProyectos } from "./ui.js";
+import { usePrivado } from "./privado.js";
 import { EditorProyectos } from "./proyectos.js";
 import { Home } from "./screens/home.js";
 import { Inbox } from "./screens/inbox.js";
@@ -52,8 +53,20 @@ const SCREENS = {
 
 function App() {
   const s = useStore();
+  // Acá y no en Home (pedido 2026-09-06): en compu el shell viejo se notaba
+  // entrando directo a Memory o a una sesión, donde Home no monta nunca.
+  useAutoActualizar();
+  // Con el candado cerrado no se puede estar PARADO en un proyecto privado: su
+  // nombre se lee en el chip, en la tabbar y en cada cabecera. Se sale a
+  // General, que es donde el candado cerrado deja ver todo lo que hay.
+  const { oculto } = usePrivado();
+  const proyectos = useProyectos();
+  useEffect(() => {
+    if (oculto && proyectos.some((p) => p.privado && p.nombre === s.proyecto)) setState({ proyecto: GENERAL });
+  }, [oculto, proyectos, s.proyecto]);
   const Screen = SCREENS[s.screen] || SCREENS.home;
   return html`
+    <${ControlesGlobales} />
     <${Sidebar} EditorProyectos=${EditorProyectos} />
     <div class="mem-content">
       <div class="mem-stage" style="position:relative;z-index:1;flex:1;display:flex;flex-direction:column;min-height:0">

@@ -4,6 +4,10 @@
 import { useState, useEffect } from "../vendor/preact-htm.js";
 
 const PREF_KEY = "mem.prefs";
+// Todo vive en un proyecto (pedido 2026-09-05): el que no eligió ninguno cae en
+// General, y por eso el selector ya no tiene "Todo" ni "Sin proyecto" — la
+// migración del server (memoria.migrar_general) los dejó a todos adentro.
+export const GENERAL = "General";
 // `proyecto` = proyecto activo del chatbox (lo que se captura sin sesión abierta).
 // Es una preferencia y no estado de pantalla: sobrevive al reload y lo heredan
 // las sesiones nuevas. Una sesión ya guardada manda sobre este valor.
@@ -18,13 +22,14 @@ const PREF_FIELDS = ["theme", "themePref", "palette", "radio", "borde", "burbuja
 const PREF_DEFAULTS = {
   theme: "light", themePref: "light", palette: "terracota",
   radio: "recto", borde: "normal", burbuja: "llena", fuente: "archivo",
-  lang: "es", voiceLang: "es-ES", proyecto: "", sesionActiva: null,
+  lang: "es", voiceLang: "es-ES", proyecto: GENERAL, sesionActiva: null,
 };
 
 function cargarPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
-    return { ...PREF_DEFAULTS, ...p };
+    // el "" guardado de cuando existía "Todo" ya no tiene a qué apuntar
+    return { ...PREF_DEFAULTS, ...p, proyecto: String(p.proyecto || "") || GENERAL };
   } catch { return { ...PREF_DEFAULTS }; }
 }
 

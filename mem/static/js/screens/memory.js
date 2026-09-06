@@ -6,13 +6,12 @@ import { html, useState, useEffect, useMemo } from "../../vendor/preact-htm.js";
 import { useStore, setState, go } from "../state.js";
 import { dict, fechaRelativa } from "../i18n.js";
 import { get, post } from "../api.js";
-import { ScreenHead, useProyectos, proyectosListos, ChipMenu, norm, TITULO_SEC, onMemoriasCambian,
-         IMG_EXT, VID_EXT, AUD_EXT } from "../ui.js";
-import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, proyectoDe, BotonVerPrivado } from "../privado.js";
+import { ScreenHead, useProyectos, proyectosListos, ChipMenu, itemsDeProyectos, norm, TITULO_SEC,
+         onMemoriasCambian, useProcesando, procesarInbox, IMG_EXT, VID_EXT, AUD_EXT } from "../ui.js";
+import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, proyectoDe } from "../privado.js";
 import { leerIgnorados } from "./lint.js";
 import { Vistazo } from "../vistazo.js";
 import { GraphView } from "../vis/grafo.js";
-import { SemanticMap } from "../vis/scatter.js";
 import { TimelineGlobal } from "../vis/timeline.js";
 import { GeoMap } from "../vis/geomapa.js";
 
@@ -22,16 +21,21 @@ import { COLORES } from "../vis/util.js";
 // tanto la banda de arriba como los bloques de contenido de abajo. Estaban
 // escritos como números sueltos ("vista === 5" era Pendientes) y no había forma
 // de reordenar nada sin cazarlos de a uno.
-const V = { REC: 0, TEMAS: 1, TIEMPO: 2, LUGARES: 3, PROY: 4, PEND: 5, GRAFO: 6, MAPA: 7, MEDIA: 8 };
-// El grupo sin nombre: no es un subject de verdad (ninguna memoria lo lleva),
-// así que sirve de centinela para "las que no cuelgan de ningún proyecto".
-const SIN_PROY = "Proyectos/";
-// Ley de Hick: nueve destinos al mismo nivel son nueve decisiones cada vez que
-// se entra. Quedan cinco — dos directos (lo que más se usa), dos menús que
-// agrupan por lo que uno viene a hacer (buscar algo / verlo dibujado) y
-// Pendientes, que solo existe cuando hay algo pendiente.
-const G_EXPLORAR = [V.TEMAS, V.PROY, V.LUGARES, V.TIEMPO];
-const G_MAPAS = [V.GRAFO, V.MAPA];
+// Los índices siguen el orden de L.memViewNames (i18n.js). Proyectos y Mapa
+// semántico salieron del menú (pedido 2026-09-05): al primero lo reemplaza el
+// filtro de proyecto, que hace lo mismo desde cualquier vista. Los huecos 4 y
+// 7 quedan para no renumerar los otros seis.
+const V = { REC: 0, TEMAS: 1, TIEMPO: 2, LUGARES: 3, PEND: 5, GRAFO: 6, MEDIA: 8 };
+// Un solo menú "cómo lo miro" en vez de dos grupos (Explorar / Mapas) que
+// obligaban a adivinar en cuál estaba cada vista (pedido 2026-09-05). Cada
+// opción lleva su glifo, y ese mismo glifo es el que queda en el chip: así el
+// control ocupa una palabra corta en vez de dos menús.
+const VISTAS = [[V.REC, "▤"], [V.TEMAS, "⊞"], [V.LUGARES, "⌖"], [V.TIEMPO, "◷"], [V.GRAFO, "⌬"], [V.MEDIA, "▦"]];
+const glifoVista = (i) => (VISTAS.find(([v]) => v === i) || [0, "▤"])[1];
+// glifos de los filtros: el chip muestra SOLO el glifo mientras está en su
+// valor por defecto, y le suma la palabra en cuanto filtra algo. Un tema y la
+// vista Temas comparten el ⊞ a propósito: son el mismo concepto.
+const G_SUB = "⊞", G_TAG = "#", G_TIPO = "⬚", G_FECHA = "◷", G_PROY = "◈";
 
 // De qué está hecha una memoria: nació en una sesión, trae un archivo, trae
 // enlaces, o es texto a secas. Sale de campos que la entrada ya guarda — no hay
@@ -138,8 +142,11 @@ function MediaTab({ lang, sesionActiva, proyecto, elegidos, onToggle, oculta, L 
   }, [sesionActiva?.id, proyecto, filtro.alcance, filtro.texto, filtro.desde, filtro.hasta]);
 
   // el candado también acá: la galería enseña el adjunto de una memoria privada
-  // sin abrirla, así que sin verificar no puede mostrarlo (pedido 2026-08-23)
-  const medios = (items || []).filter((e) => !oculta(e)
+  // sin abrirla, así que sin verificar no puede mostrarlo (pedido 2026-08-23).
+  // Y la galería es la del proyecto donde uno está parado, igual que el resto de
+  // Memory (pedido 2026-09-05): el server manda lo suyo MÁS lo público de los
+  // demás — bien para buscar, mal para una vista que dice "Media" a secas.
+  const medios = (items || []).filter((e) => !oculta(e) && (!proyecto || proyectoDe(e) === proyecto)
     && (filtro.tipo === "todos" || TIPO_MEDIA_EXT[filtro.tipo].test(e.ruta)));
 
   return html`
@@ -217,7 +224,7 @@ function BandejaSeleccion({ seleccion, sesionActiva, proyecto, L, onLimpiar, onE
 }
 
 // toggle chico de sub-modo dentro de una vista (Tiempo: bloques↔línea; Lugares:
-// lista↔mapa) — mismo trazo que los chips de ventana de Recientes
+// lista↔mapa) — mismo trazo que la tira de vistas de arriba
 function ChipsModo({ opciones, valor, onPick }) {
   return html`
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
@@ -287,9 +294,12 @@ function selloFecha(r, lang) {
     { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-const VENTANAS = [["h", 3600e3], ["d", 86400e3], ["s", 604800e3]];
+// Ventana de fecha del buscador. "t" (todos) = sin corte — es una opción más,
+// no un caso aparte: `ms` en 0 hace que enVentana() no filtre nada.
+const VENTANAS = [["h", 3600e3], ["d", 86400e3], ["s", 604800e3], ["t", 0]];
 const ventanaLabel = (id, lang) =>
-  ({ h: "1 h", d: lang === "en" ? "1 day" : "1 día", s: lang === "en" ? "1 week" : "1 semana" })[id];
+  ({ h: "1 h", d: lang === "en" ? "1 day" : "1 día", s: lang === "en" ? "1 week" : "1 semana",
+     t: lang === "en" ? "Anytime" : "Siempre" })[id];
 
 // Tiempo: hoy por horas, el resto de la semana por días, lo anterior por mes+año.
 function bloquesTiempo(lista, lang) {
@@ -325,7 +335,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const [query, setQuery] = useState("");
   const [vista, setVista] = useState(V.REC);         // índice de V (arriba)
   const [tipos, setTipos] = useState([]);            // filtro por tipo; vacío = todas
-  const [ventana, setVentana] = useState("s");       // Recientes: 1 hora / 1 día / 1 semana
+  const [ventana, setVentana] = useState("t");       // fecha: arranca sin corte (ver VENTANAS)
   const [subjectClic, setSubjectClic] = useState(null);
   const [sintetizando, setSintetizando] = useState(false);
   const [lugarClic, setLugarClic] = useState(null);
@@ -334,6 +344,20 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   const [capaCaptura, setCapaCaptura] = useState(true);  // mapa: capa "desde dónde lo anoté"
   const [geo, setGeo] = useState(null);              // /memory/map (se pide al abrir el mapa)
   const [resultados, setResultados] = useState(null); // memorias que matchean la query
+  // Filtros del buscador (pedido 2026-09-05). Solo acotan resultados de
+  // búsqueda, no las vistas de abajo: buscar es justamente para encontrar lo
+  // que NO está donde uno está parado, así que el proyecto arranca en "todos".
+  // El buscador se abre al poner el cursor, no al escribir (pedido 2026-09-05):
+  // igual que el de sesiones de Home. Con el foco puesto y sin texto, la lista
+  // es la de siempre pasada por los filtros — escribir la reordena por
+  // relevancia contra el server, no cambia de pantalla.
+  const [foco, setFoco] = useState(false);
+  // El proyecto de Memory SIGUE al del sidebar pero no lo manda (pedido
+  // 2026-09-05): entrar acá, o cambiar de proyecto en la izquierda, lo pone en
+  // ese; elegir otro acá mira ese otro sin mover dónde estás trabajando.
+  const [fProy, setFProy] = useState(String(s.proyecto || ""));
+  const [fTag, setFTag] = useState("");
+  const [fSub, setFSub] = useState("");
   const [preview, setPreview] = useState(null);       // slug abierto en el vistazo
   const [reproc, setReproc] = useState(null);         // null | "todas" | slug en reproceso
   // picker de "llevar esto a una sesión" (pedido 2026-08-10): medios Y memorias
@@ -346,6 +370,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     setSeleccion((p) => (elegidos.has(k) ? p.filter((x) => claveSel(x) !== k) : [...p, it]));
   }
   const proyectos = useProyectos();
+  const { procesando } = useProcesando();   // el mismo estado que ve la pantalla Inbox
   // candado de lo privado: en el celular sin verificar no se muestra lo privado.
   // Memorias y sesiones se miden igual (pedido 2026-08-23): lo que cuelga de un
   // proyecto privado se tapa, lo diga su campo `privada` o su proyecto de hoy.
@@ -378,6 +403,8 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     // abierta la lista y el contador se ponen al día solos (pedido 2026-08-08)
     return onMemoriasCambian(() => cargarMemorias());
   }, [s.proyecto]);
+  // cambiar de proyecto en el sidebar arrastra el de Memory; al revés no
+  useEffect(() => setFProy(String(s.proyecto || "")), [s.proyecto]);
 
   // omnibox: memorias por el server (búsqueda híbrida: substring + BM25 +
   // embeddings, orden por relevancia); inbox y sesiones acá mismo (las listas
@@ -391,13 +418,18 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     }, 250);
     return () => clearTimeout(timer);
   }, [query, s.proyecto]);
+  const enBusqueda = foco || !!q;
+  const enVentana = (r) => {
+    const ms = VENTANAS.find(([id]) => id === ventana)?.[1] ?? 0;
+    return !ms || (r.ts ? r.ts * 1000 : instante(r).getTime()) >= Date.now() - ms;
+  };
   // inbox y sesiones se filtran acá: sus listas ya están en memoria
   const inboxHits = useMemo(() => !q ? [] : inboxItems.filter((it) =>
     norm([it.texto, it.tipo, it.contexto_usuario, (it.tags || []).join(" "), (it.subjects || []).join(" ")].join(" ")).includes(q)
-    && !ocultarMem(it)), [q, inboxItems, oculto, proyectos]);
+    && pasaFiltros(it) && !ocultarMem(it)), [q, inboxItems, oculto, proyectos, fProy, fTag, fSub]);
   const sesionHits = useMemo(() => !q ? [] : sesiones.filter((x) =>
-    norm([x.titulo, x.resumen, (x.subjects || []).join(" ")].join(" ")).includes(q) && !ocultarSes(x)),
-    [q, sesiones, oculto, proyectos]);
+    norm([x.titulo, x.resumen, (x.subjects || []).join(" ")].join(" ")).includes(q)
+    && pasaFiltros(x) && !ocultarSes(x)), [q, sesiones, oculto, proyectos, fProy, fTag, fSub]);
 
   // memorias con material que el LLM no pudo leer (spec: se ven en rojo y se
   // reprocesan cuando cambias de modelo). Solo salen en su propia vista: se
@@ -407,33 +439,33 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // los filtros por tipo, proyecto y candado se aplican UNA vez acá: todas las
   // vistas derivan de `visibles`
   const pasaTipo = (r) => !tipos.length || tipos.includes(tipoDe(r));
-  // Parado en un proyecto se ve lo SUYO y lo que no tiene proyecto (la
-  // biblioteca compartida), nunca lo de otro proyecto. Filtrar por
-  // `subject=Proyectos/<n>` en el server (v93) también se comía las memorias
-  // sin proyecto, que acá son la mayoría — se veían 13 de 62 (pedido
-  // 2026-09-05). En Todo no filtra nada: el server ya acotó a lo público.
-  const pasaProyecto = (r) => { const p = proyectoDe(r); return !s.proyecto || !p || p === s.proyecto; };
-  const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaProyecto(r) && !ocultarMem(r)),
-    [todas, tipos, oculto, proyectos, s.proyecto]);
+  // Proyecto · tema · tag: los tres chips de arriba acotan TODO lo que Memory
+  // muestra, no solo el buscador — son los mismos controles, siempre a la vista.
+  // Sirven igual para memorias, items de inbox y sesiones: los tres traen
+  // `subjects`, y de ahí sale el proyecto igual que siempre.
+  const pasaSubTag = (r) => (!fTag || (r.tags || []).includes(fTag))
+    && (!fSub || (r.subjects || []).some((x) => x === fSub || String(x).startsWith(fSub + "/")));
+  const pasaFiltros = (r) => (!fProy || proyectoDe(r) === fProy) && pasaSubTag(r);
+  const visibles = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaFiltros(r) && !ocultarMem(r)),
+    [todas, tipos, oculto, proyectos, fProy, fSub, fTag]);
   // …salvo cuando el subject elegido YA es un proyecto (vista Proyectos): ahí el
   // filtro de arriba sobra y encima vaciaba la lista de todo proyecto que no
   // fuera el activo. Lo privado ajeno sigue afuera: eso lo acota el server.
-  const visiblesSinProy = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && !ocultarMem(r)),
-    [todas, tipos, oculto, proyectos]);
-  const resultadosVis = useMemo(() => (resultados || []).filter((r) => pasaTipo(r) && pasaProyecto(r) && !ocultarMem(r)),
-    [resultados, tipos, oculto, proyectos, s.proyecto]);
+  const visiblesSinProy = useMemo(() => (todas || []).filter((r) => !(r.pendiente || []).length && pasaTipo(r) && pasaSubTag(r) && !ocultarMem(r)),
+    [todas, tipos, oculto, proyectos, fSub, fTag]);
+  // Con texto manda el orden del server (relevancia); sin texto —el buscador
+  // recién abierto— la base es todo lo accesible, que los mismos filtros acotan.
+  const resultadosVis = useMemo(() => (q ? (resultados || []) : (todas || []).filter((r) => !(r.pendiente || []).length))
+    .filter((r) => pasaTipo(r) && pasaFiltros(r) && enVentana(r) && !ocultarMem(r)),
+    [q, resultados, todas, tipos, oculto, proyectos, fProy, fTag, fSub, ventana]);
 
   // vistas de exploración (todas en memoria, filtros al instante)
   const porSubject = useMemo(() => {
     if (!subjectClic) return [];
-    const base = subjectClic.startsWith(SIN_PROY) ? visiblesSinProy : visibles;
-    if (subjectClic === SIN_PROY) return base.filter((r) => !proyectoDe(r));
+    const base = subjectClic.startsWith("Proyectos/") ? visiblesSinProy : visibles;
     return base.filter((r) => (r.subjects || []).some((x) => x === subjectClic || String(x).startsWith(subjectClic + "/")));
   }, [visibles, visiblesSinProy, subjectClic]);
-  const recientes = useMemo(() => {
-    const corte = Date.now() - (VENTANAS.find(([id]) => id === ventana)?.[1] ?? 604800e3);
-    return visibles.filter((r) => (r.ts ? r.ts * 1000 : instante(r).getTime()) >= corte);
-  }, [visibles, ventana]);
+  const recientes = useMemo(() => visibles.filter(enVentana), [visibles, ventana]);
   const bloques = useMemo(() => bloquesTiempo(
     [...visibles].sort((a, b) => instante(b) - instante(a)), s.lang), [visibles, s.lang]);
   const lugares = useMemo(() => {
@@ -480,17 +512,8 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
   // vista Proyectos: un dropdown elige el proyecto y ESO es la lista (más rápido
   // que la grilla de chips + drill de antes — pedido 2026-08-05)
   const proyectosVis = proyectos.filter((p) => !oculto || !p.privado);
-  const proyecto = String(s.proyecto || "");
-  const proyectoElegido = vistaReal === V.PROY && subjectClic ? subjectClic.split("/")[1] : "";
-  // "Proyectos/" pelado = el cajón de las que no cuelgan de ningún proyecto: es
-  // la mayoría de la Biblioteca y sin esta opción no había forma de verlas
-  // juntas (volvió por pedido 2026-09-05, era el viejo chip "Sin proyecto").
-  const sinProySel = vistaReal === V.PROY && subjectClic === SIN_PROY;
+  const proyecto = fProy;    // la galería mira lo mismo que el resto de Memory
   const proyPriv = (n) => proyectos.some((p) => p.nombre === n && p.privado);
-  useEffect(() => {
-    if (vistaReal === V.PROY && !subjectClic)
-      setSubjectClic(proyectosVis.length ? `Proyectos/${proyectosVis[0].nombre}` : SIN_PROY);
-  }, [vistaReal, subjectClic, proyectos, oculto]);
 
   async function reprocesar(slugs) {
     if (reproc) return;
@@ -502,6 +525,7 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     finally { setReproc(null); }
   }
 
+  const cerrarBusca = () => { setQuery(""); setFoco(false); };
   const memorySub = arbol ? `${contarEntradas(arbol)} ${L.entriesWord} · ${contarSubjects(arbol)} ${L.categoriesWord}` : "…";
   const pendientes = inboxItems.filter((x) => x.estado === "pendiente").length;
   const conError = inboxItems.filter((x) => x.estado === "error").length;
@@ -513,9 +537,12 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
                                          seleccionado=${elegidos.has(`e:${r.slug}`)}
                                          onSeleccionar=${() => alternarSeleccion({ tipo: "memoria", slug: r.slug, titulo: r.titulo })} />`)}
     </div>`;
-  // hay contenido privado oculto: un solo botón lo revela (verificación mediante)
-  const hayPrivado = oculto && ((todas || []).some(memPriv)
-    || (proyectosListos() && (sesiones.some(sesPriv) || proyectos.some((p) => p.privado))));
+  // De qué se puede filtrar una búsqueda: lo que las memorias YA tienen. Sin
+  // catálogo aparte — si un tag no está en ninguna, tampoco tiene por qué estar
+  // en el menú. El proyecto sale de /projects (los privados que el candado deja).
+  const tagsTodos = useMemo(() => [...new Set((todas || []).flatMap((r) => r.tags || []))].sort(), [todas]);
+  const subsTodos = useMemo(() => [...new Set((todas || []).flatMap((r) =>
+    (r.subjects || []).filter((x) => !String(x).startsWith("Proyectos/"))))].sort(), [todas]);
   // el candado se cerró con el vistazo de una memoria privada abierto: no se muestra
   const previewBloqueado = preview && oculto && (todas || []).some((r) => r.slug === preview && memPriv(r));
   // Página de síntesis del tema: la escribe el LLM una vez y de ahí en más el
@@ -550,59 +577,83 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
     <div class="mem-screen ancha" style="position:relative;flex:1;display:flex;flex-direction:column;animation:scIn .42s cubic-bezier(.22,1,.36,1);min-height:0">
       <${ScreenHead} titulo="Memory" sub=${memorySub} onBack=${onClose || (() => go("home"))} />
       <div style="padding:4px 20px 12px">
-        <div style="height:44px;border-radius:var(--radius-md);background:var(--color-surface);border:1px solid var(--color-divider);display:flex;align-items:center;padding:0 12px;gap:9px;box-shadow:var(--shadow-sm)">
+        <!-- La bandeja va ARRIBA del buscador y solo existe cuando hay algo en
+             ella (pedido 2026-09-05): vacía era una fila apagada que ocupaba el
+             primer renglón de la pantalla para decir "cero". Y si está, trae su
+             propio "Procesar ahora" — entrar a Inbox solo para apretar el botón
+             era un viaje de ida y vuelta por nada. -->
+        ${!!inboxN && html`
+          <div role="button" tabindex="0" onClick=${() => go("inbox")}
+               style="position:relative;border-radius:var(--radius-md);background:var(--color-surface);border:1px solid var(--color-divider);padding:11px 12px;display:flex;gap:12px;align-items:center;cursor:pointer;box-shadow:var(--shadow-sm);margin-bottom:10px">
+            <div style="width:34px;height:34px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-accent) 22%,transparent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--color-accent-700)">${inboxN > 99 ? "99+" : inboxN}</div>
+            <div style="flex:1"><div style="font-size:14.5px;font-weight:600">${L.tInbox}</div>
+              ${!!conError && html`
+                <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700)">${conError} ${L.errWord}</div>`}</div>
+            <div role="button" tabindex="0" onClick=${(e) => { e.stopPropagation(); if (!procesando) procesarInbox(); }}
+                 class=${procesando ? "mem-btn-procesando" : "mem-btn-accent"}
+                 style="height:30px;padding:0 13px;border-radius:var(--radius-md);display:flex;align-items:center;font-size:11.5px;font-weight:600;cursor:${procesando ? "default" : "pointer"}">
+              ${procesando ? "…" : L.tProcessNow}
+            </div>
+            <span style="opacity:.35">›</span>
+          </div>`}
+        <div style="height:44px;border-radius:var(--radius-md);background:var(--color-surface);border:1px solid ${enBusqueda ? "color-mix(in srgb,var(--color-accent) 55%,var(--color-divider))" : "var(--color-divider)"};display:flex;align-items:center;padding:0 12px;gap:9px;box-shadow:var(--shadow-sm)">
           <span style="font-family:var(--font-mono);opacity:.5;font-size:13px">⌕</span>
           <input value=${query} onInput=${(e) => setQuery(e.target.value)} placeholder=${L.phMemSearch}
+                 onFocus=${() => setFoco(true)} onClick=${() => setFoco(true)}
+                 onKeyDown=${(e) => { if (e.key === "Escape") cerrarBusca(); }}
                  style="flex:1;min-width:0;border:0;background:transparent;outline:none;font-family:var(--font-body);font-size:15px;color:var(--color-text)" />
-          ${query && html`<span role="button" tabindex="0" onClick=${() => setQuery("")} style="cursor:pointer;opacity:.45;font-size:12px">✕</span>`}
+          ${enBusqueda && html`<span role="button" tabindex="0" onClick=${cerrarBusca} style="cursor:pointer;opacity:.45;font-size:12px">✕</span>`}
         </div>
-        <!-- Cinco destinos, no nueve (ver V / G_* arriba). Un solo árbol para las
-             dos anchuras: los menús ya entraban en 375px, así que desaparece el
-             render doble .mem-solo-ancho/.mem-solo-angosto que había acá. -->
-        <div style="display:flex;align-items:center;gap:7px;margin-top:11px;flex-wrap:wrap">
-          ${!q && html`
-            <div role="button" tabindex="0" onClick=${() => elegirVista(V.REC)}
-                 class="mem-tira ${vistaReal === V.REC ? "on" : ""}">${L.memViewNames[V.REC]}</div>
-            <${ChipMenu} etiqueta=${G_EXPLORAR.includes(vistaReal) ? L.memViewNames[vistaReal] : L.tGrupoExplorar}
-                         on=${G_EXPLORAR.includes(vistaReal)} ancho=${200}
-                         items=${G_EXPLORAR.map((i) => ({ id: i, label: L.memViewNames[i], on: vistaReal === i }))}
-                         onPick=${elegirVista} />
-            <${ChipMenu} etiqueta=${G_MAPAS.includes(vistaReal) ? L.memViewNames[vistaReal] : L.tGrupoMapas}
-                         on=${G_MAPAS.includes(vistaReal)} ancho=${200}
-                         items=${G_MAPAS.map((i) => ({ id: i, label: L.memViewNames[i], on: vistaReal === i }))}
-                         onPick=${elegirVista} />
-            <div role="button" tabindex="0" onClick=${() => elegirVista(V.MEDIA)}
-                 class="mem-tira ${vistaReal === V.MEDIA ? "on" : ""}">${L.memViewNames[V.MEDIA]}</div>
+        <!-- Izquierda: CÓMO se mira (un solo menú, con la palabra a la vista).
+             Derecha, contra el borde y separado por una línea: con qué se ACOTA
+             —proyecto, tema, tag, tipo, fecha— y Pendientes. Todos arrancan en
+             "Todos" y lo dicen: un glifo solo no distingue "sin filtrar" de
+             "filtrando por algo que no entra en el chip" (pedido 2026-09-06). -->
+        <div class="mem-fila-acota">
+          <${ChipMenu} etiqueta=${`${glifoVista(vistaReal)} ${L.memViewNames[vistaReal]}`}
+                       on=${!enBusqueda} ancho=${210} titulo=${L.tVista} haciaDerecha=${true}
+                       items=${VISTAS.map(([i, g]) => ({ id: i, glyph: g, label: L.memViewNames[i], on: !enBusqueda && vistaReal === i }))}
+                       onPick=${(i) => { setFoco(false); elegirVista(i); }} />
+          <div class="mem-acota">
+            <${ChipMenu} etiqueta=${`${G_PROY} ${fProy || L.tSinFiltro}`} on=${!!fProy} ancho=${230}
+                         titulo=${L.tSesProyAll} clase=${proyPriv(fProy) ? "mem-privada" : ""}
+                         items=${itemsDeProyectos(proyectosVis, fProy, [{ id: "", label: L.tSesProyAll }], s.lang)}
+                         onPick=${setFProy} />
+            <${ChipMenu} etiqueta=${`${G_SUB} ${fSub || L.tSinFiltro}`} on=${!!fSub} ancho=${250}
+                         titulo=${L.tMemSubAll} buscador=${L.tMemSubAll}
+                         items=${[{ id: "", glyph: G_SUB, label: L.tMemSubAll, on: !fSub },
+                                  ...subsTodos.map((x) => ({ id: x, glyph: G_SUB, label: x, on: fSub === x }))]}
+                         onPick=${setFSub} />
+            <${ChipMenu} etiqueta=${`${G_TAG} ${fTag || L.tSinFiltro}`} on=${!!fTag} ancho=${230}
+                         titulo=${L.tMemTagAll} buscador=${L.tMemTagAll}
+                         items=${[{ id: "", glyph: G_TAG, label: L.tMemTagAll, on: !fTag },
+                                  ...tagsTodos.map((x) => ({ id: x, glyph: G_TAG, label: x, on: fTag === x }))]}
+                         onPick=${setFTag} />
+            <${ChipMenu} etiqueta=${`${G_TIPO} ${tipos.length ? tipos.map((t) => L.memTypes[t]).join(", ") : L.tSinFiltro}`}
+                         on=${!!tipos.length} multi=${true} ancho=${220} titulo=${L.tTipo}
+                         items=${[{ id: "", glyph: G_TIPO, label: L.tSinFiltro, on: !tipos.length },
+                                  ...TIPOS_MEM.map((t) => ({ id: t, glyph: GLIFO_TIPO[t], label: L.memTypes[t], on: tipos.includes(t) }))]}
+                         onPick=${(id) => setTipos((p) => (!id ? [] : p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))} />
+            <${ChipMenu} etiqueta=${`${G_FECHA} ${ventanaLabel(ventana, s.lang)}`}
+                         on=${ventana !== "t"} ancho=${190} titulo=${L.tFecha}
+                         items=${VENTANAS.map(([id]) => ({ id, glyph: G_FECHA, label: ventanaLabel(id, s.lang), on: ventana === id }))}
+                         onPick=${setVentana} />
             <!-- sin pendientes no hay chip; con ellos, late para que se note -->
             ${!!sinLeer.length && html`
-              <div role="button" tabindex="0" onClick=${() => elegirVista(V.PEND)}
-                   class="mem-tira ${vistaReal === V.PEND ? "on" : "mem-vista-pend"}">
+              <div role="button" tabindex="0" onClick=${() => { setFoco(false); elegirVista(V.PEND); }}
+                   class="mem-tira ${!enBusqueda && vistaReal === V.PEND ? "on" : "mem-vista-pend"}">
                 ${L.memViewNames[V.PEND]}<span style="font-weight:700">${sinLeer.length}</span>
-              </div>`}`}
-          ${!q && vistaReal === V.PROY && html`
-            <${ChipMenu} etiqueta=${`◈ ${sinProySel ? L.tSinProyecto : (proyectoElegido || "…")}`}
-                         on=${!!proyectoElegido || sinProySel} ancho=${250}
-                         clase=${proyPriv(proyectoElegido) ? "mem-privada" : ""}
-                         items=${[{ id: "", label: L.tSinProyecto, glyph: "◇", on: sinProySel },
-                                  ...proyectosVis.map((p) => ({ id: p.nombre, label: p.nombre,
-                           glyph: p.privado ? html`<span class="mem-privada">⚿</span>` : "◈",
-                           sub: p.privado ? L.tPrivado : "", on: p.nombre === proyectoElegido }))]}
-                         onPick=${(n) => setSubjectClic(`Proyectos/${n}`)} />`}
-          <${ChipMenu} etiqueta=${tipos.length ? tipos.map((t) => L.memTypes[t]).join(", ") : L.tAll}
-                       on=${!!tipos.length} multi=${true} ancho=${220}
-                       items=${[{ id: "", label: L.tAll, on: !tipos.length },
-                                ...TIPOS_MEM.map((t) => ({ id: t, glyph: GLIFO_TIPO[t], label: L.memTypes[t], on: tipos.includes(t) }))]}
-                       onPick=${(id) => setTipos((p) => (!id ? [] : p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))} />
-          ${hayPrivado && html`<${BotonVerPrivado} lang=${s.lang} />`}
+              </div>`}
+          </div>
         </div>
       </div>
       <!-- padding-left/right sueltos y NO el atajo "padding": el atajo fijaba
            padding-bottom:0 inline y le ganaba a .mem-pb-mem, así que la lista
            corría por debajo de la tabbar sin despejarla (pedido 2026-08-08). -->
       <div class="mem-pb-mem" style="flex:1;overflow:auto;padding-left:20px;padding-right:20px">
-        ${q ? html`
-          ${resultados === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
-          ${resultados !== null && !resultadosVis.length && !inboxHits.length && !sesionHits.length && html`
+        ${enBusqueda ? html`
+          ${q && resultados === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
+          ${(!q || resultados !== null) && !resultadosVis.length && !inboxHits.length && !sesionHits.length && html`
             <div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
           ${!!resultadosVis.length && html`
             <div style="${TITULO_SEC};margin-bottom:8px">${L.tMemories} · ${resultadosVis.length}</div>
@@ -615,23 +666,10 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
             ${sesionHits.map((x) => html`<${FilaSesion} key=${x.id} ses=${x} lang=${s.lang} privada=${sesPriv(x)}
                                                          onOpen=${() => go("chat", x.id)} />`)}`}
         ` : html`
-          <div role="button" tabindex="0" onClick=${inboxN ? () => go("inbox") : null}
-               style="position:relative;border-radius:var(--radius-md);background:var(--color-surface);border:1px solid var(--color-divider);padding:13px 14px;display:flex;gap:12px;align-items:center;cursor:${inboxN ? "pointer" : "default"};opacity:${inboxN ? 1 : 0.45};box-shadow:var(--shadow-sm);margin-bottom:14px">
-            <div style="width:38px;height:38px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-accent) 22%,transparent);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--color-accent-700)">${inboxN > 99 ? "99+" : inboxN}</div>
-            <div style="flex:1"><div style="font-size:14.5px;font-weight:600">${L.tInbox}</div>
-              ${!!conError && html`
-                <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700)">${conError} ${L.errWord}</div>`}</div>
-            ${!!inboxN && html`<span style="opacity:.35">›</span>`}
-          </div>
-
           ${vistaReal === V.REC && html`
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
-              ${VENTANAS.map(([id]) => html`
-                <div role="button" tabindex="0" onClick=${() => setVentana(id)}
-                     style="height:32px;padding:0 12px;border-radius:var(--radius-md);display:flex;align-items:center;cursor:pointer;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;background:${ventana === id ? "color-mix(in srgb,var(--color-accent) 15%,transparent)" : "transparent"};color:${ventana === id ? "var(--color-accent-700)" : "color-mix(in srgb,var(--color-text) 55%,transparent)"};border:1px solid ${ventana === id ? "color-mix(in srgb,var(--color-accent) 55%,transparent)" : "var(--color-divider)"}">
-                  ${ventanaLabel(id, s.lang)}</div>`)}
-              <span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;opacity:.5">${recientes.length}</span>
-            </div>
+            <!-- la ventana de fecha ahora es un chip de la fila de arriba: acá
+                 solo queda el contador de lo que esa ventana deja pasar -->
+            <div style="${TITULO_SEC};margin-bottom:8px">${L.tMemories} · ${recientes.length}</div>
             ${todas === null && html`<div style="opacity:.5;font-size:13px">…</div>`}
             ${todas && !recientes.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
             ${fichas(recientes)}`}
@@ -729,20 +767,9 @@ export function Memory({ onClose = null, onInsertar = null } = {}) {
 
           ${vistaReal === V.GRAFO && html`<${GraphView} lang=${s.lang} ocultas=${ocultas} />`}
 
-          ${vistaReal === V.MAPA && html`<${SemanticMap} lang=${s.lang} ocultas=${ocultas} />`}
-
           ${vistaReal === V.MEDIA && html`
             <${MediaTab} lang=${s.lang} sesionActiva=${s.sesionActiva} proyecto=${proyecto}
                          elegidos=${elegidos} L=${L} onToggle=${alternarSeleccion} oculta=${ocultarMem} />`}
-
-          ${vistaReal === V.PROY && html`
-            ${(!!proyectoElegido || sinProySel) && html`
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                ${proyPriv(proyectoElegido) && html`<span class="mem-privada">⚿</span>`}
-                <span style="font-size:12px;opacity:.7">${sinProySel ? L.tSinProyecto : proyectoElegido} · ${porSubject.length}</span>
-              </div>
-              ${!porSubject.length && html`<div style="opacity:.5;font-size:13px">${L.tNoRes}</div>`}
-              ${fichas(porSubject)}`}`}
 
           ${vistaReal === V.PEND && html`
             ${!!sinLeer.length && html`

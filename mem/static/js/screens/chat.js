@@ -1,7 +1,7 @@
 // SESIÓN — spec §5.2: 5 vistas sobre los mismos datos (historial + memorias
 // vinculadas). Cambiar de vista no pierde nada — solo cambia `modo` (PATCH).
 import { html, useState, useEffect, useLayoutEffect, useMemo, useRef } from "../../vendor/preact-htm.js";
-import { useStore, getState, setState, back, go } from "../state.js";
+import { useStore, getState, setState, back, go, GENERAL } from "../state.js";
 import { dict, MODE_FALLBACK } from "../i18n.js";
 import { get, patch, post, del, streamMessage, capturar as encolarCaptura } from "../api.js";
 import { Sheet, MicButton, ToolChips, useDictado, dictadoSoportado, SelectorModo,
@@ -9,7 +9,7 @@ import { Sheet, MicButton, ToolChips, useDictado, dictadoSoportado, SelectorModo
          Adjunto, ChipMenu, Camara, camaraSoportada, IMG_EXT, AccionesAdjunto,
          useAdjuntos, TiraAdjuntos, archivosDelPortapapeles, BTN_ICONO } from "../ui.js";
 import { itemsDeProyectos, useProyectosVisibles } from "../proyectos.js";
-import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, PantallaPrivada } from "../privado.js";
+import { usePrivado, privadosDe, esSesionPrivada, esMemoriaPrivada, PantallaPrivada, AvisoNube } from "../privado.js";
 import { Markdown } from "../md.js";
 import { GraphView } from "../vis/grafo.js";
 import { TimelineGlobal } from "../vis/timeline.js";
@@ -201,7 +201,7 @@ function ConfirmarNube({ pedido, lang, onResponder }) {
     onResponder(op.ok, op.ok ? params : {}, op.local, op.ok ? modelo : "");
   }
   return html`
-    <${Sheet} onClose=${() => responder("no")}>
+    <${Sheet} onClose=${() => responder("no")} ancho=${560}>
       <div style="padding:8px 22px 26px">
         <h3 style="margin:0 0 8px;font-family:var(--font-heading);font-size:24px">${L.tCloudQ}</h3>
         <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:var(--text-2)">${L.tCloudBody}</p>
@@ -659,10 +659,10 @@ function DetailsSheet({ sid, meta, mensajes, onClose, onRenombrar, onBorrar, onM
              style="height:46px;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;gap:7px;font-size:13.5px;cursor:pointer;margin-bottom:${moviendo ? 8 : 10}px">→ ${L.tMoveProject}</div>
         ${moviendo && html`
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;font-size:13px">
-            <span style="color:var(--text-2)">${proyectoActual || L.tProjAll} →</span>
-            <${ChipMenu} etiqueta=${destinoProy === null ? "…" : (destinoProy || L.tProjAll)} ancho=${230}
+            <span style="color:var(--text-2)">${proyectoActual || GENERAL} →</span>
+            <${ChipMenu} etiqueta=${destinoProy === null ? "…" : destinoProy} ancho=${230}
                          items=${itemsDeProyectos(proyectosVis.filter((p) => p.nombre !== proyectoActual), destinoProy,
-                                                  proyectoActual ? [{ id: "", label: L.tProjAll }] : [], lang)}
+                                                  [], lang)}
                          onPick=${setDestinoProy} />
             ${destinoProy !== null && html`
               <span role="button" tabindex="0" onClick=${confirmarMover} class="mem-btn-accent"
@@ -1194,6 +1194,9 @@ export function Chat() {
                   onClick=${cerrarSesion}>✕</span>
           </span>
         </div>
+        <!-- proyecto privado + agente en la nube: el aviso va en la cabecera,
+             donde ya vive el ⚿, y solo mientras las dos cosas sean ciertas -->
+        ${sesPrivada && html`<${AvisoNube} lang=${s.lang} agentes=${[agenteChat]} estilo="margin-top:8px" />`}
       </div>
 
       ${meta.modo === "mindmap" ? html`<${MindmapView} titulo=${meta.titulo || sid} subjects=${subjects} paginas=${meta.paginas_usadas || []} ideas=${ideasSesion} lang=${s.lang} onExpand=${(t) => enviarTexto(`Expande sobre: ${t}`)} />`

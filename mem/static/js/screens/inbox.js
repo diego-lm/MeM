@@ -8,7 +8,7 @@ import { dict, fechaRelativa } from "../i18n.js";
 import { get, patch, del } from "../api.js";
 import { AddChip, Adjunto, Sheet, useProcesando, procesarInbox, ScreenHead, norm, IMG_EXT, TITULO_SEC,
          useProyectos, proyectosListos } from "../ui.js";
-import { usePrivado, privadosDe, esMemoriaPrivada, BotonVerPrivado } from "../privado.js";
+import { usePrivado, privadosDe, esMemoriaPrivada } from "../privado.js";
 import { Markdown } from "../md.js";
 
 const buscable = (it) =>
@@ -68,7 +68,7 @@ function Detalle({ it, L, lang, onClose, onGuardarTexto, onTags, onSubjects, onE
   }
 
   return html`
-    <${Sheet} onClose=${onClose}>
+    <${Sheet} onClose=${onClose} ancho=${860}>
       <div style="padding:4px 20px 26px;overflow:auto">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
           <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;opacity:.6">${L.inboxTypes[it.tipo] || it.tipo} · ${L.inboxStatus[it.estado] || it.estado}</span>
@@ -208,7 +208,6 @@ export function Inbox() {
         ${items === null && html`<div style="opacity:.5;font-size:13px;padding:20px 4px">…</div>`}
         ${items && !items.length && html`<div style="opacity:.5;font-size:13px;padding:20px 4px">${vacio}</div>`}
         ${items && !!items.length && !visibles.length && html`<div style="opacity:.5;font-size:13px;padding:20px 4px">${L.tNoRes}</div>`}
-        ${items?.some(ocultarMem) && html`<div style="padding:4px 0 12px"><${BotonVerPrivado} lang=${s.lang} /></div>`}
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px">
           ${visibles.map((it, i) => html`
             <${Cubo} key=${it.id} it=${it} i=${i} L=${L} lang=${s.lang} onOpen=${() => setAbierto(it)} />`)}

@@ -11,7 +11,7 @@
 // sigue el recorrido en el mismo mapa. Sin `onIr` (la lista, la línea temporal)
 // las conexiones navegan a la ficha completa, como siempre.
 import { html, useState, useEffect } from "../vendor/preact-htm.js";
-import { go } from "./state.js";
+import { go, GENERAL } from "./state.js";
 import { dict } from "./i18n.js";
 import { get, patch } from "./api.js";
 import { Sheet, AddChip, Adjunto, TITULO_SEC, ChipMenu, itemsDeProyectos, useProyectos } from "./ui.js";
@@ -74,48 +74,60 @@ export function Vistazo({ slug, lang, onClose, onIr = null }) {
   const hayConex = grupos.some(([, lista]) => (lista || []).length);
 
   return html`
-    <${Sheet} onClose=${onClose}>
+    <${Sheet} onClose=${onClose} ancho=${1000}>
       <div style="padding:4px 20px 26px;overflow:auto">
         ${!e && html`<div style="opacity:.5;font-size:13px;padding:20px 0">…</div>`}
         ${e && html`
-          <h3 style="margin:0 0 8px;font-family:var(--font-heading);font-size:22px;line-height:1.18">${e.titulo}</h3>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.55;margin-bottom:10px">
-            ${meta.map((x) => html`<span>${x}</span>`)}
-          </div>
-          <div style="margin-bottom:12px">
-            <!-- proyecto de la memoria: tocarlo abre "Mover a…" (mismo mecanismo
-                 que la sesión) — mover un privado a Todo es la forma de compartirla,
-                 una acción con nombre y no un checkbox con ayuda (pedido 2026-09-05) -->
-            <${ChipMenu} etiqueta=${`${privs.has(proyectoDe(e)) ? "⚿" : "◈"} ${proyectoDe(e) || L.tProjAll}`}
-                         items=${itemsDeProyectos(proyectos, proyectoDe(e), [{ id: "", label: L.tProjAll }], lang)}
-                         onPick=${(n) => guardar({ subjects: conProyecto(e.subjects, n) })} />
-          </div>
-          ${e.adjunto && html`<${Adjunto} ruta=${e.adjunto} />`}
-          <div style="max-height:30vh;overflow:auto;margin-bottom:12px">
-            <${Markdown} texto=${cuerpo} />
-          </div>
-          ${!!(e.enlaces || []).length && html`
-            <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">
-              ${e.enlaces.map((u) => html`
-                <a href=${u} target="_blank" rel="noreferrer"
-                   style="font-size:12px;color:var(--color-accent-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">⚯ ${u}</a>`)}
-            </div>`}
-          <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
-            ${(e.subjects || []).map((x) => html`
-              <span style="font-family:var(--font-mono);font-size:10px;padding:3px 9px;background:color-mix(in srgb,var(--color-accent) 16%,transparent);color:var(--color-accent-700)">${x}</span>`)}
-            ${(e.tags || []).map((x) => html`
-              <span style="font-family:var(--font-mono);font-size:10px;padding:3px 9px;background:color-mix(in srgb,var(--color-accent-2) 20%,transparent);color:var(--color-accent-2-700)">${x}</span>`)}
-            <${AddChip} onAdd=${(x) => guardar({ tags: [...(e.tags || []), x] })} placeholder="tag" />
-          </div>
-          ${hayConex && html`
-            <div style="${TITULO_SEC};margin-bottom:8px">${L.tConnections}</div>
-            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-              ${grupos.map(([clave, lista, alTocar]) => (lista || []).map((c) => html`
-                <${FilaConex} key=${clave + (c.slug || c.id)} glifo=${GLIFOS[clave]} titulo=${c.titulo}
-                              extra=${clave === "relacionadas" ? c.score : ""} onClick=${() => alTocar(c)} />`))}
-            </div>`}
-          <div role="button" tabindex="0" onClick=${() => { onClose(); go("entry", slug); }} class="mem-btn-accent"
-               style="height:46px;display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:15px;cursor:pointer">${L.tOpenFull}</div>`}
+          <div class="mem-sheet-2col">
+            <div class="cab">
+              <h3 style="margin:0 0 8px;font-family:var(--font-heading);font-size:22px;line-height:1.18">${e.titulo}</h3>
+              <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.55;margin-bottom:14px">
+                ${meta.map((x) => html`<span>${x}</span>`)}
+              </div>
+            </div>
+
+            <!-- lo que se lee -->
+            <div>
+              ${e.adjunto && html`<${Adjunto} ruta=${e.adjunto} />`}
+              <!-- sin max-height propio: con el panel a 92vh el scroll del sheet
+                   alcanza, y dos scrolls anidados eran imposibles de manejar -->
+              <div style="margin-bottom:12px"><${Markdown} texto=${cuerpo} /></div>
+              ${!!(e.enlaces || []).length && html`
+                <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">
+                  ${e.enlaces.map((u) => html`
+                    <a href=${u} target="_blank" rel="noreferrer"
+                       style="font-size:12px;color:var(--color-accent-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">⚯ ${u}</a>`)}
+                </div>`}
+            </div>
+
+            <!-- lo que se opera -->
+            <div class="lado">
+              <div style="margin-bottom:14px">
+                <!-- proyecto de la memoria: tocarlo abre "Mover a…" (mismo mecanismo
+                     que la sesión) — sacar un privado de su proyecto es la forma de
+                     compartirla: una acción con nombre y no un checkbox con ayuda -->
+                <${ChipMenu} etiqueta=${`${privs.has(proyectoDe(e)) ? "⚿" : "◈"} ${proyectoDe(e) || GENERAL}`}
+                             items=${itemsDeProyectos(proyectos, proyectoDe(e), [], lang)}
+                             onPick=${(n) => guardar({ subjects: conProyecto(e.subjects, n) })} />
+              </div>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+                ${(e.subjects || []).map((x) => html`
+                  <span style="font-family:var(--font-mono);font-size:10px;padding:3px 9px;background:color-mix(in srgb,var(--color-accent) 16%,transparent);color:var(--color-accent-700)">${x}</span>`)}
+                ${(e.tags || []).map((x) => html`
+                  <span style="font-family:var(--font-mono);font-size:10px;padding:3px 9px;background:color-mix(in srgb,var(--color-accent-2) 20%,transparent);color:var(--color-accent-2-700)">${x}</span>`)}
+                <${AddChip} onAdd=${(x) => guardar({ tags: [...(e.tags || []), x] })} placeholder="tag" />
+              </div>
+              ${hayConex && html`
+                <div style="${TITULO_SEC};margin-bottom:8px">${L.tConnections}</div>
+                <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+                  ${grupos.map(([clave, lista, alTocar]) => (lista || []).map((c) => html`
+                    <${FilaConex} key=${clave + (c.slug || c.id)} glifo=${GLIFOS[clave]} titulo=${c.titulo}
+                                  extra=${clave === "relacionadas" ? c.score : ""} onClick=${() => alTocar(c)} />`))}
+                </div>`}
+              <div role="button" tabindex="0" onClick=${() => { onClose(); go("entry", slug); }} class="mem-btn-accent"
+                   style="height:46px;display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-size:15px;cursor:pointer">${L.tOpenFull}</div>
+            </div>
+          </div>`}
       </div>
     <//>`;
 }

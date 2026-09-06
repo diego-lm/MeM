@@ -31,8 +31,11 @@ async def lifespan(_app):
     servicios.vigilar_ocioso(cfg)
     # una memoria vive en UN proyecto (pedido 2026-09-05); las que quedaron con
     # dos de cuando eso no regía se recortan al primero. Idempotente y barata.
+    # …y todo vive en ALGÚN proyecto: lo suelto pasa a General, así el selector
+    # no necesita un "Todo" que en realidad listaba solo lo que no tenía ninguno.
     try:
         memoria.migrar_un_proyecto(cfg["hamuq"])
+        memoria.migrar_general(cfg["hamuq"])
     except Exception as e:                          # noqa: BLE001
         memoria.log_evento(cfg["hamuq"], "proyectos", f"migración no corrió: {e}")
     yield
@@ -595,8 +598,15 @@ def get_modes():
 
 
 @app.get("/sessions", dependencies=[Depends(auth)])
-def get_sessions(modo: str | None = None, archivadas: bool = False):
-    return sesiones.listar(cfg["hamuq"], modo, archivadas)
+def get_sessions(modo: str | None = None, archivadas: bool = False,
+                 proyecto: str | None = Depends(parado_en)):
+    """Mismo muro que /memory/search: un proyecto privado encierra TAMBIEN sus
+    sesiones. El listado las mandaba a cualquier proyecto y solo las tapaba el
+    candado del cliente, asi que abrirlo estando en un proyecto publico revelaba
+    titulos ajenos (reportado 2026-09-06)."""
+    privs = memoria.privados(cfg["hamuq"])
+    return [m for m in sesiones.listar(cfg["hamuq"], modo, archivadas)
+            if memoria.accesible(m, proyecto, privs)]
 
 
 @app.post("/sessions", status_code=201, dependencies=[Depends(auth)])
@@ -607,12 +617,16 @@ def post_session(s: SesionIn):
 
 
 @app.get("/sessions/{sid}", dependencies=[Depends(auth)])
-def get_session(sid: str):
+def get_session(sid: str, proyecto: str | None = Depends(parado_en)):
     try:
         meta, mensajes = sesiones.cargar(cfg["hamuq"], sid)
     except FileNotFoundError:
         raise HTTPException(404, "sesión no encontrada")
     root = cfg["hamuq"]
+    # la sesión es la otra puerta final (ver get_entry): sin esto, el id abría
+    # la conversación de un proyecto privado desde cualquier lado
+    if not memoria.accesible(meta, proyecto, memoria.privados(root)):
+        raise HTTPException(403, "sesión privada: solo se abre desde su propio proyecto")
     # memorias: las entradas que nacieron acá — la app las marca en el chat y las
     # ofrece al borrar la sesión, sin pedir otra ronda al servidor.
     # adjuntos: mismo propósito para lo que la sesión subió o generó y quedó

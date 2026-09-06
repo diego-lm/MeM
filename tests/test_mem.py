@@ -111,7 +111,7 @@ def test_guardar_entrada_crea_indexa_y_dedupe(root):
     entrada = root / "06_Biblioteca_Conocimiento/Entradas/prueba-llms.md"
     assert entrada.exists()
     meta = frontmatter.load(entrada).metadata
-    assert meta["subjects"] == ["IA"] and meta["tags"] == ["llm"]  # legible por cualquier agente
+    assert meta["subjects"] == ["Proyectos/General", "IA"] and meta["tags"] == ["llm"]  # legible por cualquier agente
     iid, v1 = meta["id"], meta["version"]
     assert v1 == 1
     tematico = (root / "06_Biblioteca_Conocimiento/00_INDICE_TEMATICO.md").read_text(encoding="utf-8")
@@ -428,7 +428,7 @@ def test_modos_usados_se_acumulan_y_crear_se_lee_como_media(root):
 def test_subjects_se_descubren_solos(root):
     memoria.guardar_entrada(root, "Prueba LLMs", "sobre LLMs.", ["Tecnologia/IA"])
     # los declara la página leída…
-    assert memoria.subjects_de(root, ["06_Biblioteca_Conocimiento/Entradas/prueba-llms.md"]) == ["Tecnologia/IA"]
+    assert memoria.subjects_de(root, ["06_Biblioteca_Conocimiento/Entradas/prueba-llms.md"]) == ["Proyectos/General", "Tecnologia/IA"]
     assert memoria.subjects_de(root, ["no/existe.md"]) == []
     # …y si no se leyó nada de la base, los que la pregunta nombra
     assert memoria.subjects_mencionados(root, "¿qué hay de inmersivo?") == ["Tecnologia/Inmersivo"]
@@ -1217,7 +1217,7 @@ def test_procesar_item_respeta_fijado_y_mueve_a_procesado(root, monkeypatch):
     procesado = root / "07_Inbox/_procesado" / p.name
     assert procesado.exists()
     meta = frontmatter.load(procesado).metadata
-    assert meta["tags"] == ["fijo"] and meta["subjects"] == ["IA"]  # fijado nunca se pisa
+    assert meta["tags"] == ["fijo"] and meta["subjects"] == ["Proyectos/General", "IA"]  # fijado nunca se pisa
     entrada = (root / memoria.ENTRADAS / "idea-de-lint.md")
     assert entrada.exists()
 
@@ -1267,9 +1267,9 @@ def test_procesar_item_extrae_enlaces_adjunto_lugar_y_fecha(root, monkeypatch):
     meta = frontmatter.load(root / r["entrada"]).metadata
     assert meta["lugar"] == "MALI, Lima" and meta["cuando"] == "2026-08-12T19:00"
     assert meta["enlaces"] == ["https://uno.test/a", "https://dos.test/b"]
-    assert meta["subjects"] == ["Tecnologia/IA", "Inmersivo"]  # se cataloga en todas
+    assert meta["subjects"] == ["Tecnologia/IA", "Inmersivo", "Proyectos/General"]  # se cataloga en todas
     categorias = (root / "08_Categorias/00_CATEGORIAS.md").read_text(encoding="utf-8")
-    assert categorias.count("charla-de-ia-en-el-mali.md") == 2  # indexada bajo IA e Inmersivo
+    assert categorias.count("charla-de-ia-en-el-mali.md") == 3  # indexada bajo IA, Inmersivo y su proyecto
     assert not any(i["id"] == (root / rel).stem for i in memoria.inbox_listar(root))  # sale del inbox
 
 
@@ -1297,7 +1297,7 @@ def test_guardar_entrada_actualiza_metadatos_y_reindexa(root):
     meta = frontmatter.load(root / memoria.ENTRADAS / "charla-mali.md").metadata
     assert meta["lugar"] == "MALI, Lima"  # el escalar ya puesto no se pisa
     assert meta["enlaces"] == ["https://uno.test/a", "https://dos.test/b"]  # las listas se suman
-    assert meta["subjects"] == ["IA", "Inmersivo"]
+    assert meta["subjects"] == ["Proyectos/General", "IA", "Inmersivo"]
     categorias = (root / "08_Categorias/00_CATEGORIAS.md").read_text(encoding="utf-8")
     idx_inm = categorias.index("**Inmersivo**")
     assert "charla-mali.md" in categorias[idx_inm:]  # el subject nuevo también quedó indexado
@@ -1386,11 +1386,13 @@ def test_reorganizar_planear_y_aplicar(root, monkeypatch):
     memoria.guardar_entrada(root, "Museo VR", "Recorrido con gaussian splatting.", ["IA"])
     plan = reorganizar.planear({"hamuq": root})
     cambio = next(c for c in plan["cambios"] if c["slug"] == "museo-vr")
-    assert cambio["antes"] == ["IA"] and cambio["despues"] == ["Cultura/Museos"]
+    # el proyecto no se reorganiza: es dónde vive la memoria, no un tema suyo
+    assert cambio["antes"] == ["Proyectos/General", "IA"]
+    assert cambio["despues"] == ["Proyectos/General", "Cultura/Museos"]
     r = reorganizar.aplicar({"hamuq": root}, plan)
     assert r["cambiadas"] >= 1
     meta = frontmatter.load(root / memoria.ENTRADAS / "museo-vr.md").metadata
-    assert meta["subjects"] == ["Cultura/Museos"]
+    assert meta["subjects"] == ["Proyectos/General", "Cultura/Museos"]
     texto = (root / memoria.ENTRADAS / "museo-vr.md").read_text(encoding="utf-8")
     assert "(reorganización)" in texto  # cambio fechado en el registro histórico
     cat = (root / "08_Categorias/00_CATEGORIAS.md").read_text(encoding="utf-8")
@@ -1560,11 +1562,23 @@ def test_proyecto_renombrar_y_eliminar(root):
     with pytest.raises(ValueError):
         memoria.proyecto_renombrar(root, "Casa Playa", "casanueva")   # nombre ya tomado
 
-    # SOLO: el proyecto se va, su memoria queda sin proyecto
+    # SOLO: el proyecto se va y su memoria cae en General (suelto ya no es un lugar)
     out = memoria.proyecto_eliminar(root, "Casa Playa")
     assert out["memorias"] == ["presupuesto"]
-    assert memoria.leer_entrada(root, "presupuesto")["subjects"] == []
-    assert {p["nombre"] for p in memoria.proyectos_listar(root)} == {"CasaNueva"}
+    assert memoria.leer_entrada(root, "presupuesto")["subjects"] == ["Proyectos/General"]
+    assert {p["nombre"] for p in memoria.proyectos_listar(root)} == {"CasaNueva", "General"}
+
+    # General es fijo: no se borra, no se renombra, no se une, no se hace privado.
+    # Su CONTENIDO sí se mueve (es a dónde caen las huérfanas, dos líneas arriba).
+    for llamada in (lambda: memoria.proyecto_eliminar(root, "General"),
+                    lambda: memoria.proyecto_renombrar(root, "General", "Otro"),
+                    lambda: memoria.proyecto_renombrar(root, "general", "CasaNueva", fusionar=True),
+                    lambda: memoria.proyecto_guardar(root, "General", privado=True)):
+        with pytest.raises(ValueError):
+            llamada()
+    assert memoria.leer_entrada(root, "presupuesto")["subjects"] == ["Proyectos/General"]
+    memoria.editar_entrada(root, "presupuesto", subjects=["Proyectos/CasaNueva"])
+    assert memoria.leer_entrada(root, "presupuesto")["subjects"] == ["Proyectos/CasaNueva"],         "el candado es del proyecto, no de sus memorias"
 
     # TODO: la memoria va a la papelera con el proyecto
     memoria.proyecto_eliminar(root, "CasaNueva", con_contenido=True)
@@ -1610,10 +1624,10 @@ def test_adjunto_no_soportado_deja_la_memoria_pendiente_y_se_reprocesa(root, mon
     assert entrada.metadata["titulo"] == "Techo de la obra ya terminado"
     assert entrada.content.lstrip().startswith("# Techo de la obra ya terminado")
     # ni los temas: eran una conjetura sobre un adjunto que no se pudo leer
-    assert entrada.metadata["subjects"] == ["Tecnologia/Inmersivo"]
+    assert entrada.metadata["subjects"] == ["Tecnologia/Inmersivo", "Proyectos/General"]
     # y el árbol queda con UN link, con el título nuevo, bajo el tema nuevo
     cats = (root / "08_Categorias/00_CATEGORIAS.md").read_text(encoding="utf-8")
-    assert cats.count("adjunto-no-leido.md") == 1
+    assert cats.count("adjunto-no-leido.md") == 2   # el tema nuevo y su proyecto
     assert "[Techo de la obra ya terminado]" in cats
     # ni el índice cronológico —que se conserva— sigue diciendo el título viejo
     idx = (root / "06_Biblioteca_Conocimiento/00_INDICE_TEMATICO.md").read_text(encoding="utf-8")
@@ -1878,7 +1892,7 @@ def test_crear_imagen_genera_cataloga_y_se_encuentra(root, monkeypatch):
     # para el Media Manager). El nombre del archivo ya es único (fecha y hora).
     slug = "2026-08-03_120001_crear-test"
     entrada = frontmatter.load(root / f"06_Biblioteca_Conocimiento/Entradas/{slug}.md")
-    assert entrada.metadata["subjects"] == ["Creaciones/Imagen"]
+    assert entrada.metadata["subjects"] == ["Proyectos/General", "Creaciones/Imagen"]
     assert entrada.metadata["generado"] is True and entrada.metadata["backend"] == "comfyui"
     assert entrada.metadata["adjunto"].endswith("crear-test.png")
     assert "lago andino" in entrada.content            # la descripción por visión, dentro
@@ -1898,7 +1912,7 @@ def test_crear_imagen_genera_cataloga_y_se_encuentra(root, monkeypatch):
     assert pedidos[-1] == {"workflow": "video", "frames": 8 * crear.FPS}
     assert salida.startswith("![Alpaca en movimiento](/attach/07_Inbox/_adjuntos/")
     video = frontmatter.load(root / "06_Biblioteca_Conocimiento/Entradas/2026-08-03_120002_crear-test.md")
-    assert video.metadata["subjects"] == ["Creaciones/Video"]
+    assert video.metadata["subjects"] == ["Proyectos/General", "Creaciones/Video"]
     assert video.metadata["adjunto"].endswith(".mp4")
     # y la entrada de la imagen sigue existiendo aparte, sin fusionarse con la
     # del video pese al título parecido
@@ -2137,6 +2151,40 @@ def test_migrar_un_proyecto_recorta_las_viejas(root):
     assert memoria.migrar_un_proyecto(root) == 1
     assert frontmatter.load(p).metadata["subjects"] == ["Proyectos/A"]
     assert memoria.migrar_un_proyecto(root) == 0, "idempotente: la 2ª corrida no escribe"
+
+
+def test_migrar_general_mete_lo_suelto_en_un_proyecto(root):
+    """Todo vive en un proyecto (pedido 2026-09-05): lo que quedó suelto —una
+    entrada, una sesión, un item del inbox— pasa a General, que se crea si no
+    estaba. Lo que YA tiene proyecto no se toca."""
+    memoria.proyecto_guardar(root, "Obra", False)
+    suelta = root / "06_Biblioteca_Conocimiento/Entradas/suelta.md"
+    suelta.parent.mkdir(parents=True, exist_ok=True)
+    suelta.write_text(frontmatter.dumps(frontmatter.Post(
+        "# Suelta\n", titulo="Suelta", subjects=["Tecnologia/IA"])), encoding="utf-8")
+    dela_obra = root / "06_Biblioteca_Conocimiento/Entradas/de-la-obra.md"
+    dela_obra.write_text(frontmatter.dumps(frontmatter.Post(
+        "# Obra\n", titulo="Obra", subjects=["Proyectos/Obra"])), encoding="utf-8")
+    ses = root / "10_Sesiones/2026-09-05_000000.md"
+    ses.parent.mkdir(parents=True, exist_ok=True)
+    ses.write_text(frontmatter.dumps(frontmatter.Post("charla\n", id="2026-09-05_000000")), encoding="utf-8")
+
+    assert memoria.migrar_general(root) == 3   # las dos entradas sueltas (una es del fixture) y la sesión
+    assert frontmatter.load(suelta).metadata["subjects"] == ["Proyectos/General", "Tecnologia/IA"]
+    assert frontmatter.load(dela_obra).metadata["subjects"] == ["Proyectos/Obra"], "lo que ya tenía no se toca"
+    assert frontmatter.load(ses).metadata["proyecto"] == "General"
+    assert any(p["nombre"] == "General" and not p["privado"] for p in memoria.proyectos_listar(root))
+    assert memoria.migrar_general(root) == 0, "idempotente: la 2ª corrida no escribe"
+
+
+def test_lo_que_se_guarda_sin_proyecto_cae_en_general(root):
+    """La otra mitad del invariante: una captura o una entrada nueva sin
+    proyecto (MCP, CLI) tampoco puede quedar suelta — si no, no la lista
+    ninguna pantalla, porque el selector ya no tiene un "Todo"."""
+    memoria.guardar_entrada(root, "Sin dueño", "cuerpo", ["Tecnologia/IA"])
+    assert memoria.leer_entrada(root, "sin-dueno")["subjects"] == ["Proyectos/General", "Tecnologia/IA"]
+    ruta = memoria.capturar(root, "una nota suelta")
+    assert frontmatter.load(root / ruta).metadata["subjects"] == ["Proyectos/General"]
 
 
 # --------------------------------------------------------------------------

@@ -110,8 +110,11 @@ Si el ícono no está, doble clic en `MeM.bat` lo vuelve a levantar (un mutex ev
 
 ### La app
 
-- **Home** — captura rápida (texto, foto, audio) y accesos directos.
-- **Memory** — explorar lo guardado: Recientes, Explorar (temas/proyectos/tags), Mapas (tiempo, lugares, grafo, mapa semántico), Media, Pendientes (inbox).
+- **Home** — captura rápida (texto, foto, audio) y el buscador de sesiones: al abrirlo aparecen filtros por proyecto, por modo y por estado (activas / archivadas / las dos). El de proyecto arranca en el que tenés seleccionado y sigue al selector del costado, pero cambiarlo acá no mueve tu proyecto de trabajo — elegí *Todos los proyectos* para encontrar una sesión que esté en otro.
+- **Memory** — explorar lo guardado. A la izquierda de la fila de arriba, **cómo se ve**: un solo menú con *Tarjetas* (la lista), *Temas*, *Lugares*, *Tiempo*, *Relaciones* (el grafo) y *Media*. Contra el borde derecho, separado por una línea, **con qué se acota**: proyecto, tema, tag, tipo de memoria y fecha. Todos arrancan en *Todos* —sin filtrar— y el botón dice en qué está: al cambiarlo muestra el valor elegido y se enciende. Los filtros están siempre a la vista y acotan todas las vistas, no solo la búsqueda; los menús de tema y tag se arman con lo que las memorias tienen de verdad y traen su propio buscador adentro.
+- El **proyecto de Memory** sigue al del costado pero no lo manda: al entrar arranca en el que estés parado, y si lo cambiás en el sidebar, acá cambia también. Elegir otro (o *Todos los proyectos*) mira ese otro sin mover dónde estás trabajando.
+- El **buscador** se abre al poner el cursor, sin esperar a que escribas: aparecen los resultados y escribir los reordena por relevancia. El ✕ cierra y vuelve a la vista de antes.
+- La **bandeja de entrada** aparece arriba del buscador solo cuando tiene algo, con su propio botón **Procesar ahora**: vacía no ocupa lugar.
 - **Sesiones** — conversaciones de trabajo sobre uno o más temas, con vista intercambiable:
 
   | Modo | Para qué |
@@ -121,23 +124,37 @@ Si el ícono no está, doble clic en `MeM.bat` lo vuelve a levantar (un mutex ev
   | **mindmap** | nodos y relaciones entre temas y memorias |
   | **timeline** | los hechos de un tema en orden cronológico |
 
-- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI. Se entra por el ícono `⚙` de Home, al lado del de tema claro/oscuro (en el celular está además en la barra de abajo).
+- **Ajustes** — proveedor de IA, apariencia (paleta/tipografía/radio/burbuja), procesamiento (reindexar búsqueda, backup), agentes, y **Media › Componentes** para instalar o sacar LM Studio / Ollama / ComfyUI. Se entra por el ícono `⚙` de arriba a la derecha, al lado del tema claro/oscuro y del candado (en el celular está además en la barra de abajo).
 
-La versión (`vN`) se muestra al pie de la columna de la izquierda en compu, y en la banda de Home en el celular. Si el servidor que está corriendo quedó atrás del código en disco, el número se convierte en un botón **⟳ actualizar a vN** que reinicia el servidor sin tocar la máquina.
+La versión (`vN`) se muestra al pie de la columna de la izquierda, en compu. Si el servidor que está corriendo quedó atrás del código en disco, el número se convierte en un botón **⟳ actualizar** que reinicia el servidor sin tocar la máquina.
+
+No hace falta apretarlo para ponerse al día: en cualquier pantalla y en cualquier aparato, si el navegador tiene cargada una versión más vieja que la del servidor, MeM tira el caché y se recarga sola, una vez. Sin conexión no toca nada —borrar el caché offline dejaría la app en blanco.
 
 ### Proyectos y privado
 
-El selector de proyecto (chip del costado en compu, última pestaña en el celular) tiene dos zonas: **Todo** (la biblioteca compartida: lo público de todos los proyectos) y la lista de tus proyectos (los privados marcados con `⚿`). El **＋** de al lado crea uno nuevo, y desde ahí mismo (`⋯` en cada fila) se renombra, se une, se borra o se marca como privado.
+Todo vive en un proyecto: no hay memorias ni sesiones sueltas. El selector (chip del costado en compu, última pestaña en el celular) lista tus proyectos y nada más — los privados marcados con `⚿` — y ocupa el ancho entero de la columna para que el nombre se lea completo. Debajo, **＋** crea un proyecto nuevo y **✎** edita el que está seleccionado (renombrar, unir, borrar, marcar privado, generar clave). Parado en General el ✎ no aparece — es fijo y no tiene nada que editar; para gestionar los otros, ＋ abre la misma lista.
 
-Un proyecto ordena; uno **privado** además encierra: todo lo suyo (sesiones, memorias, capturas, medios) solo se ve parado en él. Marcar un proyecto como privado o público cambia la visibilidad de todo lo suyo al instante — no hay nada que migrar a mano. En el celular, lo privado queda tapado hasta tocar "Ver privado" y verificar con huella/cara/PIN; en compu se ve siempre, marcado en rojo.
+Lo que no elegía proyecto vivía "suelto" y el selector lo llamaba **Todo**, que confundía porque no mostraba todo: mostraba justamente lo que no tenía proyecto. Al actualizar, todo eso pasó a un proyecto público llamado **General**. Lo que capturas sin elegir proyecto también cae ahí, y ahí van a parar las memorias de un proyecto que borrás sin elegir destino — por eso General es **fijo**: no se borra, no se renombra, no se une a otro ni se hace privado, y en vez del menú `⋯` su fila dice *Fijo*. Su **contenido** sí se mueve como el de cualquier otro: podés sacar de ahí una memoria o una sesión cuando quieras.
 
-Parado en un proyecto, la pantalla **Memory** lista lo de ese proyecto **y lo que no tiene proyecto** (la biblioteca compartida), pero no lo de los otros proyectos; parado en **Todo**, lista todo lo público. Para ver juntas solo las memorias sueltas está la opción **Sin proyecto** del dropdown de *Explorar › Proyectos*, que además deja mirar cualquier otro proyecto sin moverse del activo.
+**Borrar un proyecto** pregunta antes qué pasa con lo suyo, por separado para las **memorias** y para las **sesiones**: *mover a otro proyecto* o *borrar*. Nunca queda nada suelto —si elegís mover, un menú te deja elegir a dónde, y por defecto es General— y lo que se borra va a la papelera, o sea que se puede recuperar. Si el proyecto que borrás es el único que tenés, no hay a dónde mover y la única opción es la papelera. Debajo del botón rojo, en chiquito, dice exactamente lo que va a pasar antes de que lo toques.
 
-Una memoria o sesión vive en un solo proyecto. Para "compartir" algo que está en un proyecto privado, se la mueve a **Todo**: tocar el chip **Proyecto: …** de la ficha (o el de la sesión) abre "Mover a…", el mismo mecanismo en los dos casos.
+Un proyecto ordena; uno **privado** además encierra: todo lo suyo (sesiones, memorias, capturas, medios) solo se ve parado en él. Marcar un proyecto como privado o público cambia la visibilidad de todo lo suyo al instante — no hay nada que migrar a mano.
+
+Lo privado se abre y se cierra con **un solo candado**, arriba a la derecha, en todas las pantallas — junto al ☀/☾ del tema y al ⚙ de Ajustes. **Cerrado** (candado con el arco bajo), un proyecto privado no existe: no aparece su nombre en el selector ni en ningún filtro, ni sus sesiones, ni sus memorias; si estabas parado en uno, la app te deja en General. **Abierto** (arco levantado, en rojo), se ve todo, marcado en rojo, mientras uses la app. Tocarlo pide la verificación de este aparato — huella o cara en el celular, Windows Hello en la compu — y si el aparato no tiene lector, abre directo. Tocarlo de nuevo lo cierra en el acto, sin preguntar.
+
+El candado abierto dura **15 minutos de inactividad**: mientras estés tocando la app el plazo se renueva solo, así que trabajando no se cierra nunca en la cara; si cerrás la app y volvés más tarde, hay que verificarse otra vez. Volver antes de esos 15 minutos la encuentra abierta.
+
+Sacar contenido de un proyecto privado tampoco pasa de largo: al **borrar** o **unir** uno privado, el menú de destino ofrece solo otros proyectos **privados**, porque mover a uno público es publicar en bloque y en silencio. Si igual querés hacerlo, el botón **⚿ Permitir públicos** abre un aviso que explica qué significa; recién después de aceptarlo aparecen todos los proyectos en la lista.
+
+Privado dice **quién lo ve dentro de MeM**, no por dónde pasa el texto: si el agente que atiende corre en la nube — cualquier modelo de Claude, sea por API o por el `claude` instalado en tu máquina — lo que escribas en un proyecto privado igual sale de la computadora. Por eso MeM avisa, en rojo y con `⚿`, en los tres momentos en que eso se decide: al crear un proyecto con la casilla `⚿ Privado` puesta, al pasar uno existente a privado, y en la cabecera de cada sesión de un proyecto privado. El aviso dice qué agente y qué modelo van a contestar, y no aparece si el agente es local (LM Studio): ahí no hay nada que avisar.
+
+La pantalla **Memory** arranca listando lo del proyecto donde estés parado, y nada más — la galería de *Media* incluida. Para mirar otro sin moverte, su chip de proyecto: elegís ese, o *Todos los proyectos*, y el proyecto de trabajo del costado no se mueve.
+
+Una memoria o sesión vive en un solo proyecto. Para "compartir" algo que está en un proyecto privado, se lo mueve a uno público (General, por ejemplo): tocar el chip **Proyecto: …** de la ficha (o el de la sesión) abre "Mover a…", el mismo mecanismo en los dos casos.
 
 En una sesión de chat, **Guardar en memoria** (menú `⋯`, o el aviso cuando el contexto se llena) destila lo hablado a la Biblioteca sin tocar la sesión; una casilla opcional "y archivar la sesión" además la archiva. Lo destilado hereda el proyecto de la sesión — y su privacidad — sin ninguna marca aparte.
 
-Desde el editor de proyectos (el **＋** del selector, luego `⋯` en la fila), un proyecto privado puede generar una **clave de acceso** (botón "Clave de acceso (MCP/CLI)"): la única forma de que Claude Desktop/Code o el CLI lean ese proyecto (ver [Conectar MeM a Claude](#conectar-mem-a-claude) más abajo). Se muestra una sola vez al generarla.
+Desde el editor de proyectos (el **✎** del selector, que abre el proyecto activo ya desplegado; para otro, `⋯` en su fila), un proyecto privado puede generar una **clave de acceso** (botón "Clave de acceso (MCP/CLI)"): la única forma de que Claude Desktop/Code o el CLI lean ese proyecto (ver [Conectar MeM a Claude](#conectar-mem-a-claude) más abajo). Se muestra una sola vez al generarla.
 
 ### Comandos (`mem ...`)
 
@@ -162,7 +179,7 @@ Con el entorno activado (`.venv\Scripts\activate`) o llamando `.venv\Scripts\mem
 | `mem sintesis "Tema/Subtema"` | crea o regenera la página de síntesis de un tema |
 | `mem ids` | one-shot: asigna id/versión a entradas viejas sin versionar |
 
-Sin `--proyecto`, estos comandos solo ven **Todo** (lo público). `--proyecto P` suma lo de ese proyecto; si es privado, hace falta además `--clave K` (la que generás en el editor de proyectos › `⋯` › Clave de acceso (MCP/CLI)).
+Sin `--proyecto`, estos comandos solo ven lo público. `--proyecto P` suma lo de ese proyecto; si es privado, hace falta además `--clave K` (la que generás con el ✎ del selector de proyectos › `⋯` › Clave de acceso (MCP/CLI)).
 
 ## Conectar MeM a Claude
 
@@ -171,11 +188,11 @@ Resumen — instrucciones completas en [README.md § Conectar MeM a Claude](READ
 - **Claude Desktop / Code** — vía `mem-plugin/` (stdio, `python -m mem.mcp`).
 - **claude.ai (web y móvil)** — Settings → Connectors → Add custom connector → `https://<tu-host>/mcp/<mcp_secreto>`. Necesita `mcp_secreto` puesto en `config.toml` y esa ruta publicada (Tailscale Funnel u otro túnel HTTPS).
 
-Sin nada más, Claude solo ve **Todo** (lo público). Para que también lea un proyecto privado: Desktop/Code toman las claves de la variable de entorno `MEM_CLAVES` (una vez, no hay que pasarla en cada pregunta — ver README); claude.ai la pide en cada llamada a la herramienta, porque no hay entorno de por medio.
+Sin nada más, Claude solo ve lo público. Para que también lea un proyecto privado: Desktop/Code toman las claves de la variable de entorno `MEM_CLAVES` (una vez, no hay que pasarla en cada pregunta — ver README); claude.ai la pide en cada llamada a la herramienta, porque no hay entorno de por medio.
 
 ## Backup
 
-Ajustes → Procesamiento → Backup: exporta el vault completo (memorias, tags, subjects fijados, adjuntos) a una carpeta a elección, e importa desde ahí en otra máquina. Es aparte de Dropbox — pensado para tener una copia portable/versionada de la memoria, no del código.
+Ajustes → Procesamiento → Backup: exporta el vault completo (memorias, tags, subjects fijados, adjuntos) a una carpeta a elección, e importa desde ahí en otra máquina. Es aparte de Dropbox — pensado para tener una copia portable/versionada de la memoria, no del código. Exportar se lleva también lo privado, así que pide el candado abierto: si está cerrado, avisa y no hace nada.
 
 ## Solución de problemas
 

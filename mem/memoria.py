@@ -424,7 +424,13 @@ def capturar(root: Path, contenido: str, tipo: str = "nota", contexto: str = "",
     # congelaría también la clasificación que el procesador todavía no hizo.
     # un_proyecto: si `proyecto` viene puesto, gana el suyo sobre cualquier otro
     # que trajeran los subjects (una memoria vive en un solo proyecto).
-    subs = un_proyecto([subject_proyecto(proyecto), *(subjects or [])] if proyecto else subjects)
+    # Si no viene `proyecto`, manda el que traigan los subjects; y si no traen
+    # ninguno, General: una captura suelta no la listaría ninguna pantalla (el
+    # selector ya no tiene "Todo").
+    subs = un_proyecto([*([subject_proyecto(proyecto)] if proyecto else []), *(subjects or [])])
+    if not proyectos_de(subs):
+        subs = [subject_proyecto(GENERAL), *subs]
+    proyecto = proyecto or proyectos_de(subs)[0]
     post = frontmatter.Post(
         contenido.strip() + "\n", id=iid,
         capturado=ahora.isoformat(timespec="seconds"), tipo=tipo, origen=origen,
@@ -713,6 +719,8 @@ def guardar_entrada(root: Path, titulo: str, contenido: str, subjects: list[str]
     """
     hoy = date.today().isoformat()
     subjects = un_proyecto(normalizar_subjects(subjects))
+    if not proyectos_de(subjects):
+        subjects = [subject_proyecto(GENERAL), *subjects]   # todo vive en un proyecto
     slug = slug or slugificar(titulo)
     entradas = root / ENTRADAS
     entradas.mkdir(parents=True, exist_ok=True)
@@ -1147,7 +1155,7 @@ def medios_todos(root: Path, *, texto: str = "", desde: str = "", hasta: str = "
             continue
         ses_meta = frontmatter.load(root / "10_Sesiones" / f"{sid}.md").metadata if sid and (root / "10_Sesiones" / f"{sid}.md").is_file() else {}
         p_ses = _norm(str(ses_meta.get("proyecto") or ""))
-        if subject and _norm(f"proyectos/{ses_meta.get('proyecto') or ''}") != _norm(subject):
+        if subject and _norm(subject_proyecto(str(ses_meta.get("proyecto") or "") or GENERAL)) != _norm(subject):
             continue
         # sueltos sin ficha: su proyecto es el de la sesión dueña — misma
         # regla que accesible(), pero a mano porque no pasan por buscar_memorias
@@ -1162,10 +1170,13 @@ def medios_todos(root: Path, *, texto: str = "", desde: str = "", hasta: str = "
         if q and q not in _norm(f"{titulo} {ruta}"):
             continue
         # el suelto no tiene ficha: su proyecto es el de la sesión dueña, dicho
-        # como subject para que la app lo lea igual que el de una memoria
-        p_nombre = str(ses_meta.get("proyecto") or "")
+        # como subject para que la app lo lea igual que el de una memoria. Sin
+        # sesión dueña cae en General, como todo lo demás — si no, es un archivo
+        # que el server devuelve y ninguna galería lista, porque todas filtran
+        # por el proyecto donde uno está parado.
+        p_nombre = str(ses_meta.get("proyecto") or "") or GENERAL
         out.append({"ruta": ruta, "titulo": titulo, "slug": "", "sesion": sid, "ts": ts,
-                    "subjects": [f"Proyectos/{p_nombre}"] if p_nombre else []})
+                    "subjects": [subject_proyecto(p_nombre)]})
     out.sort(key=lambda e: e["ts"], reverse=True)
     return out
 
@@ -1300,6 +1311,50 @@ def migrar_un_proyecto(root: Path) -> int:
     return n
 
 
+def migrar_general(root: Path) -> int:
+    """Migración one-shot (pedido 2026-09-05): todo vive en un proyecto.
+
+    "Sin proyecto" era un tercer estado que la UI no sabía nombrar —el selector
+    lo llamaba "Todo" pero listaba solo lo suelto— y que además escondía la
+    mayor parte de la Biblioteca en cuanto uno se paraba en un proyecto. Lo
+    suelto pasa a un proyecto público llamado `General`, y el selector queda con
+    una sola clase de opción: proyectos.
+
+    Toca entradas, sesiones (activas y archivadas) e items del inbox que no
+    cuelguen de ninguno. Idempotente: la segunda corrida no encuentra nada.
+    Corre al arrancar el server."""
+    n = 0
+    if not any(_norm(p["nombre"]) == _norm(GENERAL) for p in proyectos_listar(root)):
+        proyecto_guardar(root, GENERAL, privado=False)
+    sub = subject_proyecto(GENERAL)
+
+    for p in sorted((root / ENTRADAS).glob("*.md")) if (root / ENTRADAS).exists() else []:
+        post = frontmatter.load(p)
+        if proyectos_de(post.metadata.get("subjects")):
+            continue
+        post.metadata["subjects"] = [sub, *(post.metadata.get("subjects") or [])]
+        p.write_text(frontmatter.dumps(post), encoding="utf-8")
+        log_evento(root, "proyectos", f"{p.stem}: sin proyecto -> {GENERAL}")
+        n += 1
+
+    # sesiones e inbox llevan el proyecto en un campo, no en subjects (el item
+    # del inbox lleva los dos: se ponen juntos o el candado ve uno y el otro no)
+    ses = root / "10_Sesiones"
+    sueltos = [*ses.glob("*.md"), *ses.glob("_archivo/*/*.md")] if ses.exists() else []
+    inbox = sorted((root / "07_Inbox").glob("*.md")) if (root / "07_Inbox").exists() else []
+    for p in sorted(sueltos) + inbox:
+        post = frontmatter.load(p)
+        if str(post.metadata.get("proyecto") or "") or proyectos_de(post.metadata.get("subjects")):
+            continue
+        post.metadata["proyecto"] = GENERAL
+        if p in inbox:
+            post.metadata["subjects"] = [sub, *(post.metadata.get("subjects") or [])]
+        p.write_text(frontmatter.dumps(post), encoding="utf-8")
+        log_evento(root, "proyectos", f"{p.stem}: sin proyecto -> {GENERAL}")
+        n += 1
+    return n
+
+
 def fijar_pendiente(root: Path, slug: str, faltantes: list[str]) -> None:
     """Marca (o limpia) qué material adjunto no pudo leer el LLM. Va aparte de
     guardar_entrada porque ahí las listas se UNEN: cuando el reproceso por fin
@@ -1373,6 +1428,24 @@ def arbol_subjects(root: Path) -> list[dict]:
 
 PROYECTOS = "08_Categorias/PROYECTOS.md"
 GRUPO_PROYECTOS = "Proyectos"
+# Todo vive en un proyecto (pedido 2026-09-05): lo que no elige uno cae acá, así
+# no hay memorias que ninguna pantalla liste. Es un proyecto común y corriente
+# —público, se puede renombrar—, no un caso especial del código.
+GENERAL = "General"
+
+
+def es_general(nombre: str) -> bool:
+    return _norm(str(nombre or "")) == _norm(GENERAL)
+
+
+def _no_tocar_general(nombre: str, que: str) -> None:
+    """General es fijo (pedido 2026-09-06): es el proyecto por defecto y el
+    destino al que cae lo que se queda sin lugar, así que no se borra, no se
+    renombra, no se une a otro y no se hace privado. Su CONTENIDO sí se mueve.
+    Va acá y no en la UI: el MCP, el CLI y un shell viejo entran por el mismo
+    lado y el invariante tenía que valer para los cuatro."""
+    if es_general(nombre):
+        raise ValueError(f"General es un proyecto fijo: no se puede {que}")
 
 
 def subject_proyecto(nombre: str) -> str:
@@ -1429,6 +1502,8 @@ def proyecto_guardar(root: Path, nombre: str, privado: bool | None = None) -> di
     nuevo = prev is None
     if prev:
         if privado is not None:
+            if privado:
+                _no_tocar_general(nombre, "hacer privado")
             prev["privado"] = bool(privado)
     else:
         prev = {"nombre": nombre, "privado": bool(privado), "clave_hash": "",
@@ -1495,6 +1570,7 @@ def proyecto_renombrar(root: Path, viejo: str, nuevo: str, fusionar: bool = Fals
     exactamente este mismo barrido, pero borrando la fila de origen en vez de
     renombrarla. Por eso no hay un proyecto_fusionar aparte.
     """
+    _no_tocar_general(viejo, "unir a otro" if fusionar else "renombrar")
     nuevo = " ".join(nuevo.split())
     if not nuevo:
         raise ValueError("el proyecto necesita un nombre")
@@ -1530,8 +1606,9 @@ def proyecto_renombrar(root: Path, viejo: str, nuevo: str, fusionar: bool = Fals
 def proyecto_eliminar(root: Path, nombre: str, con_contenido: bool = False,
                       destino: str = "") -> dict:
     """Quita el proyecto de la lista. Sus memorias van a la papelera con él
-    (con_contenido), o quedan vivas: sin proyecto, o bajo `destino` si se pidió
-    reasignarlas. Devuelve los slugs tocados; las sesiones las maneja el llamador."""
+    (con_contenido) o quedan vivas bajo `destino` (vacío = General: nada queda
+    suelto). Devuelve los slugs tocados; las sesiones las maneja el llamador."""
+    _no_tocar_general(nombre, "borrar")
     lista = proyectos_listar(root)
     p = next((x for x in lista if _norm(x["nombre"]) == _norm(nombre)), None)
     if not p:
@@ -1539,6 +1616,13 @@ def proyecto_eliminar(root: Path, nombre: str, con_contenido: bool = False,
     d = next((x for x in lista if _norm(x["nombre"]) == _norm(destino)), None) if destino else None
     if destino and (not d or d is p):
         raise ValueError(f"destino inválido: {destino}")
+    # mover sin decir a dónde dejaba las memorias sueltas, y suelto ya no es un
+    # lugar: ninguna pantalla las listaría (el selector no tiene "Todo"). Van a
+    # General, que para eso está y no se puede borrar.
+    if not con_contenido and d is None:
+        d = next((x for x in lista if _norm(x["nombre"]) == _norm(GENERAL)), None) or proyecto_guardar(root, GENERAL)
+        lista = proyectos_listar(root)
+        p = next(x for x in lista if _norm(x["nombre"]) == _norm(p["nombre"]))
     lista.remove(p)
     _proyectos_escribir(root, lista)
     sub = subject_proyecto(p["nombre"])
@@ -1833,8 +1917,8 @@ def demo() -> None:
         proyecto_eliminar(root, "CasaNueva", destino="Refugio")
         assert leer_entrada(root, "vecina")["subjects"] == ["Proyectos/Refugio"]
         proyecto_eliminar(root, "Refugio")
-        assert leer_entrada(root, "vecina")["subjects"] == [], "sin destino, quedan sin proyecto"
-        assert len(buscar_memorias(root, sin_proyecto=True)) == 3
+        assert leer_entrada(root, "vecina")["subjects"] == [subject_proyecto(GENERAL)],             "sin destino caen en General, no sueltas"
+        assert not buscar_memorias(root, sin_proyecto=True), "borrar un proyecto no deja huérfanas"
         try:
             proyecto_eliminar(root, "no existe")
             raise AssertionError("tenía que fallar")

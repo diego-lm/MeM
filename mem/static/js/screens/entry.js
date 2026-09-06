@@ -1,7 +1,7 @@
 // ITEM DE MEMORIA — spec §6.1: ver, editar subjects/tags (acotado), conexiones,
 // registro de cambios. Nunca reescribe historia — toda edición queda fechada.
 import { html, useState, useEffect } from "../../vendor/preact-htm.js";
-import { useStore, go } from "../state.js";
+import { useStore, go, GENERAL } from "../state.js";
 import { dict } from "../i18n.js";
 import { get, patch, post } from "../api.js";
 import { AddChip, Adjunto, BotonCompartir, ScreenHead, Sheet, TITULO_SEC,
@@ -137,10 +137,10 @@ export function Entry() {
         <h3 style="margin:0 0 10px;font-family:var(--font-heading);font-size:25px;line-height:1.14">${e.titulo}</h3>
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);margin-bottom:14px">
           ${meta.map((x) => html`<span>${x}</span>`)}
-          <!-- proyecto de la memoria: tocarlo abre "Mover a…" — mover un privado
-               a Todo es la forma de compartirla (pedido 2026-09-05) -->
-          <${ChipMenu} etiqueta=${`${memPrivada ? "⚿" : "◈"} ${proyectoDe(e) || L.tProjAll}`}
-                       items=${itemsDeProyectos(proyectos, proyectoDe(e), [{ id: "", label: L.tProjAll }], s.lang)}
+          <!-- proyecto de la memoria: tocarlo abre "Mover a…" — sacar un privado
+               de su proyecto (a General, p.ej.) es la forma de compartirla -->
+          <${ChipMenu} etiqueta=${`${memPrivada ? "⚿" : "◈"} ${proyectoDe(e) || GENERAL}`}
+                       items=${itemsDeProyectos(proyectos, proyectoDe(e), [], s.lang)}
                        onPick=${(n) => guardar({ subjects: conProyecto(e.subjects, n) })} />
         </div>
         ${e.sesion && html`

@@ -2,10 +2,10 @@
 // esquina, mic) + Sidebar de escritorio (extrapolación propia del DS, sin
 // documento de referencia: sigue tokens/clases existentes, nada inventado fuera de ellos).
 import { html, useRef, useState, useEffect } from "../vendor/preact-htm.js";
-import { useStore, go, back, setState } from "./state.js";
+import { useStore, go, back, setState, GENERAL } from "./state.js";
 import { dict, MODE_FALLBACK } from "./i18n.js";
 import { bajarAdjunto, get, post, postAttach } from "./api.js";
-import { privadosDe, esSesionPrivada } from "./privado.js";
+import { privadosDe, esSesionPrivada, esLocal, usePrivado, BotonCandado } from "./privado.js";
 import { AUDIO_SVG, Lupa } from "./md.js";
 import { VERSION } from "./version.js";
 
@@ -192,6 +192,28 @@ function BadgeInbox({ n }) {
     <span style="min-width:17px;height:17px;padding:0 4px;border-radius:var(--radius-md);background:var(--color-accent);color:var(--color-bg);font-family:var(--font-mono);font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center">${n > 99 ? "99+" : n}</span>`;
 }
 
+/** Los tres controles que no son de ninguna pantalla en particular: candado,
+ *  tema y Ajustes. Arriba a la derecha y en TODAS las pantallas (pedido
+ *  2026-09-06) — el tema y el ⚙ vivían dentro de la banda de Home, así que
+ *  fuera de Home no existían, y el candado tiene que estar donde sea que se
+ *  esté mirando algo tapado. Las cabeceras dejan sitio con `padding-right`
+ *  (.mem-scr-head-row, .mem-chat-head, .mem-home-banda): flotan encima, y sin
+ *  ese hueco tapaban el ⋯ del chat o el contador del inbox. */
+export function ControlesGlobales() {
+  const s = useStore();
+  const L = dict(s.lang);
+  const dark = s.theme === "dark";
+  return html`
+    <div class="mem-controles">
+      <${BotonCandado} lang=${s.lang} />
+      <div role="button" tabindex="0" class="mem-ctrl" title=${L.themeLabels[dark ? 0 : 1]}
+           onClick=${() => setState({ theme: dark ? "light" : "dark", themePref: dark ? "light" : "dark" })}>
+        ${dark ? "☾" : "☀"}
+      </div>
+      <div role="button" tabindex="0" class="mem-ctrl" title=${L.tabs[3]} onClick=${() => go("settings")}>⚙</div>
+    </div>`;
+}
+
 export function TabBar({ EditorProyectos }) {
   const s = useStore();
   const pend = useInboxPend();
@@ -221,7 +243,7 @@ export function TabBar({ EditorProyectos }) {
            pantalla se fue. -->
       <div role="button" tabindex="0" class="mem-tab" style="color:color-mix(in srgb, var(--color-text) 45%, transparent)" onClick=${() => setProyAbierto(true)}>
         <span style="font-size:18px;line-height:1">◈</span>
-        <span style="font-family:var(--font-heading);font-size:11px;font-weight:600;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${proyecto || L.tProjAll}</span>
+        <span style="font-family:var(--font-heading);font-size:11px;font-weight:600;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${proyecto || GENERAL}</span>
         <span style="width:4px;height:4px;flex-shrink:0;background:transparent"></span>
       </div>
       ${proyAbierto && html`
@@ -415,12 +437,6 @@ export function useSistema(activo = true, ms = 3000) {
   return s;
 }
 
-/** El agente que corre EN esta máquina.
- *  ponytail: "openai" ES el proveedor local — Ajustes lo rotula "Local / OpenAI"
- *  y lo prellena con localhost:1234. Si algún día se apunta a una nube
- *  compatible habría que mirar base_url, que /agents/activos hoy ni manda. */
-const esLocal = (a) => a.proveedor === "openai";
-
 const GB = (b) => Math.round((b || 0) / 1024 ** 3);
 
 /** Usado/total con barra, en el ancho de un chip. Rojo desde el 90%: es donde el
@@ -534,13 +550,17 @@ export function Alpaca({ alto = 96, clase = "", estilo = "" }) {
  *  dropdown de acá abajo. Se recarga al cambiar de pantalla (mismo patrón que
  *  useInboxPend): no hay push del server, así que un turno nuevo/movido se ve
  *  recién al navegar — vale para una app de un solo usuario. */
-function useSesionesSidebar(screen) {
+function useSesionesSidebar(screen, proyecto) {
   const [sesiones, setSesiones] = useState(null);
+  // `proyecto` en las dependencias y no solo la pantalla: /sessions responde
+  // según desde dónde se pregunta (las de un proyecto privado no salen de él),
+  // así que al mudarse de proyecto la lista de antes ya no vale — se veía
+  // "Sin sesiones acá" recién entrado a un proyecto privado.
   useEffect(() => {
     let vivo = true;
     get("/sessions").then((r) => { if (vivo) setSesiones(r); }).catch(() => {});
     return () => { vivo = false; };
-  }, [screen]);
+  }, [screen, proyecto]);
   return sesiones;
 }
 
@@ -551,11 +571,17 @@ export function Sidebar({ EditorProyectos }) {
   const proyectosTodos = useProyectos();
   const privs = privadosDe(proyectosTodos);
   const proyecto = String(s.proyecto || "");
-  const sesiones = useSesionesSidebar(s.screen);
+  const sesiones = useSesionesSidebar(s.screen, proyecto);
   const [gestionando, setGestionando] = useState(false);
+  // el candado también acá: parado en un proyecto privado, esta lista era la
+  // única que seguía mostrando sus títulos con el candado puesto — en compu no
+  // se notaba porque hasta v110 en compu no había candado (reportado 2026-09-06).
+  const { oculto } = usePrivado();
   const propias = (sesiones || [])
-    .filter((x) => String(x.proyecto || "") === proyecto)
+    .filter((x) => String(x.proyecto || "") === proyecto && !(oculto && esSesionPrivada(x, privs)))
     .sort((a, b) => String(b.actualizada || "").localeCompare(String(a.actualizada || "")));
+  // con el candado puesto un proyecto privado no se nombra: tampoco en el selector
+  const proyectosVis = oculto ? proyectosTodos.filter((p) => !p.privado) : proyectosTodos;
   return html`
     <aside class="mem-sidebar">
       <div class="mem-sidebar-brand">Me<span style="color:var(--color-accent)">M</span></div>
@@ -581,20 +607,31 @@ export function Sidebar({ EditorProyectos }) {
            (crear/renombrar/privado/unir/borrar) — el chip por pantalla que hacía
            esto se fue con el sidebar (pedido 2026-08-31). -->
       <div class="mem-sidebar-ses-wrap">
-        <div style="display:flex;align-items:center;gap:6px">
-          <${ChipMenu} etiqueta=${`◈ ${proyecto || L.tProjAll}`} on=${!!proyecto}
-                       estilo="flex:1;min-width:0;max-width:none;justify-content:space-between"
-                       items=${itemsDeProyectos(proyectosTodos, proyecto, [{ id: "", label: L.tProjAll }], s.lang)}
-                       onPick=${(n) => setState({ proyecto: n })} />
-          <!-- ＋ y no ✎ (pedido 2026-09-05): lo que se viene a hacer acá el 90%
-               de las veces es crear uno — el editor abre directo en "nuevo", y
-               renombrar/privado/unir/borrar siguen a un tap de ahí. -->
-          <span role="button" tabindex="0" title=${L.tNewProject} class="mem-hit"
-                onClick=${() => setGestionando(true)}
-                style="width:32px;height:32px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px">＋</span>
+        <!-- El selector se lleva TODO el ancho de la columna: el nombre del
+             proyecto es lo que hay que poder leer entero, y compartir la fila
+             con un botón lo cortaba a la mitad. Crear y editar bajan a su
+             propia fila, separados: ＋ es "uno nuevo" y ✎ es "este de acá"
+             (pedido 2026-09-05). -->
+        <${ChipMenu} etiqueta=${`◈ ${proyecto}`} on=${!!proyecto}
+                     estilo="display:flex;width:100%;max-width:none;justify-content:space-between"
+                     items=${itemsDeProyectos(proyectosVis, proyecto, [], s.lang)}
+                     onPick=${(n) => setState({ proyecto: n })} />
+        <div style="display:flex;gap:6px">
+          <!-- parado en General no hay ✎: es fijo y no tiene nada que editar
+               (pedido 2026-09-06), así que ＋ se queda con la fila entera — y desde
+               ahí se llega igual a la lista para gestionar los otros. -->
+          ${[[L.tNewProject, "＋", L.tNew, () => setGestionando("nuevo")],
+             ...(norm(proyecto) === norm(GENERAL) ? []
+                 : [[L.tEdit, "✎", L.tEdit, () => setGestionando("editar")]])].map(([titulo, glifo, corto, abrir]) => html`
+            <span key=${glifo} role="button" tabindex="0" title=${titulo} class="mem-hit" onClick=${abrir}
+                  style="flex:1;height:30px;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-2);white-space:nowrap">
+              ${glifo}<span style="font-size:11px">${corto}</span>
+            </span>`)}
         </div>
         ${gestionando && html`
-          <${EditorProyectos} valor=${proyecto} lang=${s.lang} abrirEnNuevo=${true}
+          <${EditorProyectos} valor=${proyecto} lang=${s.lang}
+                               abrirEnNuevo=${gestionando === "nuevo"}
+                               editar=${gestionando === "editar" ? proyecto : ""}
                                onPick=${(n) => setState({ proyecto: n })}
                                onClose=${() => setGestionando(false)} />`}
         <div class="mem-sidebar-ses-list">
@@ -633,7 +670,14 @@ export function Sidebar({ EditorProyectos }) {
 // solo reacciona el que está en la punta de la pila.
 let sheetSeq = 0;
 const pilaSheets = [];
-export function Sheet({ onClose, children, maxHeight = "88%" }) {
+// El history.back() que dispara un sheet al cerrarse por botón consume SU entrada,
+// pero el popstate le llega igual al sheet de abajo, que se cerraba también: con
+// uno solo abierto no se notaba, con dos (el popup de "permitir públicos" dentro
+// del editor) cerraba los dos. La bandera lo tapa, y se limpia en un listener
+// `once` registrado recién ahí: como los de los sheets se registraron al montar,
+// corren antes y todos ven la bandera todavía puesta.
+let popPropio = false;
+export function Sheet({ onClose, children, maxHeight = "92%", ancho = 720 }) {
   const idRef = useRef(0);
   const viaPop = useRef(false);
   useEffect(() => {
@@ -641,6 +685,7 @@ export function Sheet({ onClose, children, maxHeight = "88%" }) {
     pilaSheets.push(idRef.current);
     history.pushState(null, "");
     const onPop = () => {
+      if (popPropio) return;                                          // ese back lo pedimos nosotros
       if (pilaSheets[pilaSheets.length - 1] !== idRef.current) return; // no soy el de arriba
       pilaSheets.pop();
       viaPop.current = true;
@@ -652,6 +697,8 @@ export function Sheet({ onClose, children, maxHeight = "88%" }) {
       if (!viaPop.current) {
         const i = pilaSheets.indexOf(idRef.current);
         if (i !== -1) pilaSheets.splice(i, 1);
+        popPropio = true;
+        addEventListener("popstate", () => { popPropio = false; }, { once: true });
         history.back();   // se cerró por X/backdrop: consume la entrada que pusheamos
       }
     };
@@ -659,7 +706,7 @@ export function Sheet({ onClose, children, maxHeight = "88%" }) {
   return html`
     <div class="mem-sheet-root">
       <div onClick=${onClose} style="position:absolute;inset:0;background:rgba(20,18,16,.45);backdrop-filter:blur(3px);animation:veil .3s both"></div>
-      <div class="mem-sheet-panel" style="max-height:${maxHeight}">
+      <div class="mem-sheet-panel" style="max-height:${maxHeight};--sheet-w:${ancho}px">
         <div style="padding:12px 0 4px;display:flex;justify-content:center;flex-shrink:0"><span style="width:44px;height:5px;border-radius:var(--radius-md);background:var(--color-divider)"></span></div>
         ${children}
       </div>
@@ -787,15 +834,21 @@ export function ChipMenu({ etiqueta, items, onPick, multi = false, on = false, a
     setLado(menuFijo(e, ancho, haciaDerecha));
     setAbierto(true);
   }
+  // Abre al APRETAR, no al soltar (pedido 2026-09-05): un menú que espera el
+  // click completo se siente lento aunque no lo sea. El velo también cierra en
+  // pointerdown, y por eso el gesto que abrió no se cierra solo: el velo no
+  // existía todavía cuando ese pointerdown salió.
+  const alPuntero = (e) => (abierto ? cerrar() : abrir(e));
   const visibles = q.trim() ? items.filter((it) => nm(`${it.label} ${it.sub || ""}`).includes(nm(q))) : items;
   useEscape(abierto, cerrar);
   return html`
-    <span style="position:relative;display:inline-flex;flex-shrink:0">
+    <span class="mem-chip-wrap">
       <span role="button" tabindex="0" title=${titulo} class="mem-proy-chip ${on || abierto ? "on" : ""} ${clase}"
             aria-haspopup="menu" aria-expanded=${abierto}
-            style="max-width:calc(100vw - 32px);${estilo}" onClick=${(e) => (abierto ? cerrar() : abrir(e))}>${etiqueta} ▾</span>
+            style="max-width:calc(100vw - 32px);${estilo}" onPointerDown=${alPuntero}
+            onKeyDown=${(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alPuntero(e); } }}>${etiqueta} ▾</span>
       ${abierto && html`
-        <div onClick=${cerrar} class="mem-velo"></div>
+        <div onPointerDown=${cerrar} class="mem-velo"></div>
         <div class="mem-proy-menu" role="menu" style=${lado}>
           ${buscador && html`
             <input value=${q} autofocus placeholder=${buscador} class="mem-proy-input" style="margin:2px 0 6px"
@@ -856,7 +909,7 @@ export function ConfirmarBorradoSesion({ ses, memorias = [], adjuntos = [], lang
                          adjuntos.length && `${adjuntos.length} adjunto${adjuntos.length === 1 ? "" : "s"}`]
                         .filter(Boolean).join(" · ").slice(0, 70);
   return html`
-    <${Sheet} onClose=${onClose}>
+    <${Sheet} onClose=${onClose} ancho=${520}>
       <div style="padding:8px 22px 26px">
         <h3 style="margin:0 0 8px;font-family:var(--font-heading);font-size:24px">${L.tDeleteQ}</h3>
         <div style="font-size:15px;font-weight:600;margin-bottom:8px">${ses.titulo || ses.id}</div>
@@ -936,7 +989,7 @@ export function Camara({ onListo, onClose, lang }) {
 
   const mmss = `${String(Math.floor(segs / 60)).padStart(2, "0")}:${String(segs % 60).padStart(2, "0")}`;
   return html`
-    <${Sheet} onClose=${onClose}>
+    <${Sheet} onClose=${onClose} ancho=${520}>
       <div style="padding:6px 18px 24px">
         ${err ? html`
           <div style="padding:26px 4px;font-size:13.5px;line-height:1.5">
@@ -1216,10 +1269,15 @@ export function IndicadorVersion({ lang, clase = "" }) {
   const [vServer, setVServer] = useState(null);
   useEffect(() => { get("/health").then((h) => setVServer(h.version || 0)).catch(() => {}); }, []);
   const { fase, iniciar } = useReiniciarServidor(() => setVServer(VERSION.n));
+  // al día = un dato, no una acción: lleva su propia clase para que una pantalla
+  // apretada (Home en el celular) lo esconda sin esconder también el aviso de
+  // actualización, que es lo único que hay que ver sí o sí.
   if (vServer === null || vServer === VERSION.n)
-    return html`<span class=${clase} style="font-family:var(--font-mono);font-size:10px;opacity:.4">v${VERSION.n}</span>`;
+    return html`<span class=${`mem-ver-alDia ${clase}`} style="font-family:var(--font-mono);font-size:10px;opacity:.4">v${VERSION.n}</span>`;
   const txt = {
-    idle: en ? `⟳ update v${VERSION.n}` : `⟳ actualizar a v${VERSION.n}`,
+    // sin el número: en la banda de Home en el celular, "⟳ actualizar a v100"
+    // era lo bastante ancha para partir la fila en dos. El número está en el title.
+    idle: en ? "⟳ update" : "⟳ actualizar",
     confirmar: en ? "tap again" : "tocá de nuevo",
     reiniciando: en ? "restarting…" : "reiniciando…",
     listo: en ? "✓ done" : "✓ listo",
@@ -1229,6 +1287,32 @@ export function IndicadorVersion({ lang, clase = "" }) {
     <span role="button" tabindex="0" onClick=${iniciar} class=${`mem-btn-accent ${clase}`}
           title=${en ? `server on v${vServer}, code on v${VERSION.n}` : `el server corre v${vServer} y el código es v${VERSION.n}`}
           style="height:26px;padding:0 9px;border-radius:var(--radius-md);display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:10px;white-space:nowrap;cursor:pointer">${txt}</span>`;
+}
+
+/** El celu no tiene dónde apretar "actualizar" —ese botón vivía en la banda de
+ *  Home y se fue (pedido 2026-09-06)— así que un shell viejo se quedaba viejo
+ *  para siempre. Si el server corre una versión MÁS NUEVA que la que este
+ *  navegador tiene cargada, lo viejo es el cache: se tira y se recarga.
+ *
+ *  El flag de sessionStorage guarda para QUÉ versión ya se recargó, así que si
+ *  después de recargar sigue habiendo diferencia (un sw.js que no cede, un
+ *  proxy) no entra en bucle: recarga una vez y se queda. Y sin red no se toca
+ *  nada: borrar el cache offline deja la app en blanco. */
+export function useAutoActualizar() {
+  useEffect(() => {
+    if (!navigator.onLine) return;
+    get("/health").then(async (h) => {
+      const v = h.version || 0;
+      if (v <= VERSION.n || sessionStorage.getItem("mem.recargado") === String(v)) return;
+      try { sessionStorage.setItem("mem.recargado", String(v)); } catch { /* modo privado */ }
+      try { await Promise.all((await caches.keys()).map((k) => caches.delete(k))); } catch { /* sin CacheStorage */ }
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      } catch { /* sin service worker */ }
+      location.reload();
+    }).catch(() => {});
+  }, []);
 }
 
 export const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
@@ -1562,6 +1646,17 @@ const CSS = `
    salía DENTRO de esa banda, de 267x82. De paso el velo tapa también el sidebar,
    que en escritorio quedaba clickeable detrás del modal. */
 .mem-sheet-root{position:fixed;inset:0;z-index:60}
+/* Contenido de sheet en dos columnas donde hay ancho: lo que se LEE (cuerpo,
+   adjunto, enlaces) a la izquierda y lo que se OPERA (proyecto, tags,
+   conexiones, acciones) a la derecha. En una sola columna era una tira larga
+   donde el botón de abajo quedaba a tres scrolls del título. La cabecera cruza
+   las dos. Abajo de 880 vuelve a ser una sola, en el mismo orden de siempre. */
+.mem-sheet-2col{display:grid;grid-template-columns:minmax(0,1fr);gap:0 26px;align-items:start}
+.mem-sheet-2col>.cab{grid-column:1/-1}
+@media (min-width:880px){
+  .mem-sheet-2col{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+  .mem-sheet-2col>.lado{border-left:1px solid var(--color-divider);padding-left:22px}
+}
 .mem-sheet-panel{position:absolute;left:0;right:0;bottom:0;background:var(--color-bg);border-radius:var(--radius-lg);border-top:2px solid var(--color-text);animation:sheetUp .44s cubic-bezier(.22,1,.36,1);display:flex;flex-direction:column;overflow:hidden;padding-bottom:env(safe-area-inset-bottom,0px)}
 /* padding-top con env(): en el navegador el inset es 0 y queda en 16px; en un
    iPhone con notch crece para no meter la cabecera bajo la cámara. */
@@ -1581,12 +1676,13 @@ const CSS = `
    32px visual (antes 24) + ::after hasta 44px de toque real (pedido 2026-08-05,
    DESIGN_BRIEF §7). overflow:clip con margen en vez de hidden: el recorte de la
    elipsis pasa a 8px *fuera* de la caja, así el halo del ::after no se corta. */
+.mem-chip-wrap{position:relative;display:inline-flex;flex-shrink:0}
 .mem-proy-chip{position:relative;display:inline-flex;align-items:center;gap:5px;max-width:190px;height:32px;padding:0 11px;border-radius:var(--radius-md);font-family:var(--font-mono);font-size:var(--fs-1);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:clip;overflow-clip-margin:8px;text-overflow:ellipsis;cursor:pointer;border:1px solid var(--color-divider);color:var(--text-3)}
 .mem-proy-chip::after{content:"";position:absolute;inset:-6px 0}
 .mem-proy-chip.on{border-color:color-mix(in srgb,var(--color-accent) 55%,transparent);background:color-mix(in srgb,var(--color-accent) 13%,transparent);color:var(--color-accent-700)}
 /* anclado a la DERECHA: el chip vive al final de su fila, y abriendo hacia la
    izquierda el menú entra en 375px de ancho en vez de salirse de la pantalla. */
-.mem-proy-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;width:230px;max-width:calc(100vw - 28px);max-height:300px;overflow:auto;border-radius:var(--radius-md);background:var(--color-bg);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);padding:4px;animation:pop .22s cubic-bezier(.22,1,.36,1)}
+.mem-proy-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;width:230px;max-width:calc(100vw - 28px);max-height:300px;overflow:auto;border-radius:var(--radius-md);background:var(--color-bg);border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);padding:4px;animation:pop .1s cubic-bezier(.22,1,.36,1)}
 /* scrim de cierre de los menús anclados: 39 queda justo debajo del z-40 del
    .mem-proy-menu (y del Toast) — si esa relación cambia, cambiarla junta. */
 .mem-velo{position:fixed;inset:0;z-index:39}
@@ -1599,6 +1695,33 @@ const CSS = `
 .mem-select:focus-visible{outline:2px solid var(--color-accent);outline-offset:1px}
 .mem-proy-item{display:flex;align-items:center;gap:8px;padding:10px 10px;min-height:44px;border-radius:var(--radius-md);font-size:var(--fs-3);cursor:pointer;text-transform:none;letter-spacing:0}
 .mem-proy-item:hover{background:color-mix(in srgb,var(--color-text) 6%,transparent)}
+/* Memory: a la izquierda CÓMO se mira (un menú), acá con qué se ACOTA. Se
+   separan con el espacio y una línea, no con otro color: son controles del
+   mismo peso. En angosto el margin-left:auto no aplica y el grupo cae a su
+   propia línea, que es justo lo que se quiere en un celular. */
+.mem-acota{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.mem-fila-acota{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:11px}
+@media (min-width:760px){.mem-acota{margin-left:auto;padding-left:11px;border-left:1px solid var(--color-divider)}}
+/* Celu: la fila de Memory salía en cuatro renglones con medio ancho vacío, y no
+   era por los chips sino por el grupo: .mem-acota es una caja aparte, así que
+   empieza en su propio renglón y deja el resto del anterior sin usar.
+   display:contents la disuelve —los chips pasan a ser hijos de la misma fila y
+   la llenan— y con el respiro de más recortado entran los seis en dos renglones.
+   El 11px de --fs-1 no se toca: es el piso legible de la app (pedido 2026-09-06). */
+@media (max-width:600px){
+  .mem-acota{display:contents}
+  .mem-fila-acota{gap:6px}
+  .mem-proy-chip{height:29px;padding:0 5px;gap:3px;letter-spacing:0;max-width:150px}
+  /* y una vez que entran en dos renglones, que los llenen: cada chip crece a su
+     parte del sobrante en vez de dejar un hueco muerto a la derecha. El texto se
+     reparte con space-between, así la flecha queda contra el borde como en un
+     select y no flotando al medio (pedido 2026-09-06). */
+  .mem-fila-acota .mem-chip-wrap{flex:1 1 auto;min-width:0}
+  .mem-fila-acota .mem-proy-chip{width:100%;max-width:none;justify-content:space-between}
+}
+/* 44px es el dedo. Con mouse esa altura obliga a scrollear un menú de ocho
+   proyectos que entraría entero — elegir se vuelve dos gestos en vez de uno. */
+@media (pointer:fine){.mem-proy-item{min-height:32px;padding:6px 10px}}
 .mem-proy-input{width:100%;box-sizing:border-box;height:40px;padding:0 10px;border-radius:var(--radius-md);border:1px solid var(--color-accent);background:var(--color-bg);color:var(--color-text);font-size:var(--fs-3);outline:none}
 /* Pastilla que ABRAZA su texto: acciones sueltas (.mem-tog) y casillas
    (.mem-tog.check, con el cuadrito del estado a la izquierda). */
@@ -1608,13 +1731,14 @@ const CSS = `
 .mem-tog.check.on::before{background:currentColor;opacity:1;box-shadow:inset 0 0 0 2px var(--color-surface)}
 /* la acción que destruye no se disfraza de las otras dos (Von Restorff) */
 .mem-tog.peligro{color:var(--color-priv);border-color:color-mix(in srgb,var(--color-priv) 45%,transparent)}
-/* Celu: el chatbox no tiene ancho para prosa decorativa — la etiqueta ▸, el
-   modelo/modalidades del chip de agente y el texto de "Guardar" se esconden
-   (queda el icono; el detalle vive en el menú del chip o en el title). */
+/* Celu: el chatbox no tiene ancho para prosa decorativa — la etiqueta ▸ y el
+   modelo/modalidades del chip de agente se esconden (el detalle vive en el menú
+   del chip o en el title). El NOMBRE del agente sí se queda: sin él el chip era
+   dos glífos sueltos (⌘ ▾) que se leían como algo cortado, no como un botón. */
 @media (max-width:600px){
   .mem-ag-chip-extra{display:none}
   .mem-home-etiq{display:none}
-  .mem-chip-txt{display:none}
+  .mem-chip-txt{max-width:7ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 }
 /* Un control, dos formas: tira de pastillas donde hay ancho, dropdown donde no.
    Así ninguna pantalla del celu queda con scroll horizontal (pedido 2026-08-04). */
@@ -1628,8 +1752,21 @@ const CSS = `
    un contorno: en una grilla de fichas el borde solo se pierde. */
 .mem-privada{border:1.5px solid var(--color-priv)!important;
   background:color-mix(in srgb,var(--color-priv) 8%,var(--color-surface))!important}
-.mem-priv-ver{position:relative;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 13px;border-radius:var(--radius-md);border:1.5px solid var(--color-priv);color:var(--color-priv);font-family:var(--font-mono);font-size:var(--fs-1);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;background:var(--color-surface)}
-.mem-priv-ver::after{content:"";position:absolute;inset:-4px}
+/* Barra de controles globales (candado · tema · Ajustes): flota arriba a la
+   derecha en todas las pantallas. --ctrl-hueco es lo que las cabeceras se
+   reservan para no quedar debajo. */
+:root{--ctrl-hueco:146px}
+.mem-controles{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));right:20px;z-index:35;display:flex;gap:7px}
+.mem-ctrl{width:40px;height:40px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);background:var(--color-surface);color:var(--color-text);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;transition:border-color .2s,color .2s}
+.mem-ctrl.on{border-color:var(--color-priv);color:var(--color-priv)}
+.mem-scr-head-row,.mem-chat-head>div:first-of-type,.mem-home-banda{padding-right:var(--ctrl-hueco)}
+/* DESPUÉS de la regla base y no en el bloque de móvil de más arriba: misma
+   especificidad, gana la última que se escribe. */
+@media (max-width:600px){
+  :root{--ctrl-hueco:118px}
+  .mem-controles{top:calc(10px + env(safe-area-inset-top,0px));right:12px;gap:5px}
+  .mem-ctrl{width:34px;height:34px;font-size:14px}
+}
 /* halo de toque genérico para controles inline que no pasan por .mem-proy-chip
    (la ✕ de un tag, etc): mismo patrón, position:relative + ::after invisible. */
 .mem-hit{position:relative}
@@ -1793,7 +1930,11 @@ const CSS = `
   .mem-pb-mem{padding-bottom:16px}
   .mem-set-wrap{padding:12px 24px 16px}  /* sin tabbar flotante en desktop */
   .mem-sheet-root{display:flex;align-items:center;justify-content:center;background:transparent}
-  .mem-sheet-panel{position:relative;left:auto;right:auto;bottom:auto;width:min(480px,90%);max-height:80vh!important;border-radius:var(--radius-lg);border:1px solid var(--color-divider);animation:pop .3s cubic-bezier(.22,1,.36,1)}
+  /* el panel medía 480px y 80vh para TODOS: una ficha con cuerpo, tags y
+     conexiones entraba por un canal más angosto que la pantalla que la abrió, y
+     de ahí salían los scrolls anidados. Ahora cada sheet dice cuánto quiere
+     (--sheet-w) y la ventana pone el techo (pedido 2026-09-06). */
+  .mem-sheet-panel{position:relative;left:auto;right:auto;bottom:auto;width:min(var(--sheet-w,720px),92vw);max-height:92vh!important;border-radius:var(--radius-lg);border:1px solid var(--color-divider);animation:pop .3s cubic-bezier(.22,1,.36,1)}
 }
 /* viewport bajo (celular apaisado, ventana corta): manda el ancho, no el alto. */
 @media (max-height:560px){
@@ -1812,6 +1953,30 @@ const CSS = `
 }
 @media (min-width:880px) and (max-height:560px){
   .mem-home-outer{padding:12px 28px 16px}
+}
+/* CELULAR — dos arreglos de la misma causa (reportado 2026-09-05).
+   1. El "vN" al día se metía entre la fecha y los botones y apretaba la fila
+      entera para decir algo que también está en Ajustes. El AVISO de
+      actualización se queda: ese hay que verlo.
+   2. La banda deja de flotar y EMPUJA el card. Flotando, el card despejaba con
+      un margin-top fijo de 52px; cuando el aviso hacía wrapear la banda a dos
+      filas, la segunda caía debajo del buscador y no se veía. En flujo el hueco
+      lo mide el contenido, sea una fila o dos. El margin-left deja el gutter de
+      la mascota, que sigue flotando (y se apoya detrás del card). */
+@media (max-width:879px){
+  .mem-home-ver.mem-ver-alDia{display:none}
+  /* 58 y no 64: los 6px que sobran del gutter son los que le faltaban a la tira
+     de clima para una tercera hora. La mascota mide 53 de ancho, o sea que sigue
+     habiendo aire entre las dos. */
+  .mem-home-banda{position:static;margin-left:58px}
+  .mem-home-card{margin-top:8px}
+  /* de la mascota asomaban 33px por encima del card y el resto quedaba tapado,
+     con 40px de aire libre arriba sin usar. 74 la sube esos 16px sin sacarle la
+     cabeza del stage (pedido 2026-09-06). */
+  .mem-home-alpaca{top:74px}
+}
+@media (max-width:879px) and (max-height:560px){
+  .mem-home-banda{margin-left:0}   /* apaisado: la mascota no está, no hay gutter que dejar */
 }`;
 if (!document.getElementById("mem-ui-css")) {
   const st = document.createElement("style"); st.id = "mem-ui-css"; st.textContent = CSS;

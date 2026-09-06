@@ -101,7 +101,10 @@ def planear(cfg: dict) -> dict:
                     [{"role": "user", "content": f"# {e['titulo']}\n\n{e['cuerpo']}"}], None)
                 temas = [t for s in (_json_de(r["texto"]).get("subjects") or []) if (t := _tema_limpio(s))]
                 if temas:
-                    despues = list(dict.fromkeys(temas))[:MAX_TEMAS]
+                    # el proyecto NO se reorganiza: es dónde vive la memoria, no
+                    # un tema. Sin esto el bibliotecario la sacaba de su proyecto.
+                    proy = [s for s in e["antes"] if memoria.proyectos_de([s])]
+                    despues = [*proy, *list(dict.fromkeys(temas))[:MAX_TEMAS]]
             except Exception:
                 pass
         for s in despues:

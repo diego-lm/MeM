@@ -10,7 +10,7 @@ import { get, patch, post, posicion } from "../api.js";
 import { Modalidades, invalidarAgentes, useInboxPend, useProcesando, procesarInbox, ScreenHead,
          ChipMenu, BotonAgente, intervaloVisible, menuFijo, useEscape, useSistema,
          cargarInboxPend, useReiniciarServidor } from "../ui.js";
-import { verificarSiMovil } from "../privado.js";
+import { usePrivado } from "../privado.js";
 
 // Grilla de widgets: celdas iguales que LLENAN el hueco con TODOS los widgets
 // visibles (una sola pantalla, sin scroll). 3:2 es la forma de referencia, pero
@@ -925,6 +925,10 @@ const CARPETA_BACKUP = "mem.backup.carpeta";
 
 function Backup({ lang }) {
   const en = lang === "en";
+  // Sacar TODA la memoria a una carpeta es lo más sensible que hace la app, y
+  // se lleva lo privado también: pide el mismo candado que el resto (antes tenía
+  // su propia verificación biométrica aparte — dos gates para lo mismo).
+  const { oculto } = usePrivado();
   const [v, setV] = useState(() => localStorage.getItem(CARPETA_BACKUP) || "");
   const [fase, setFase] = useState("idle");   // idle | exportando | importando | listo | fallo
   const [msg, setMsg] = useState("");
@@ -934,8 +938,8 @@ function Backup({ lang }) {
     const carpeta = v.trim();
     if (ocupado || !carpeta) return;
     localStorage.setItem(CARPETA_BACKUP, carpeta);
-    if (accion === "exportando" && !(await verificarSiMovil())) {
-      setFase("fallo"); setMsg(en ? "verification cancelled" : "verificación cancelada"); return;
+    if (accion === "exportando" && oculto) {
+      setFase("fallo"); setMsg(en ? "open the padlock (top right) first" : "abrí primero el candado (arriba a la derecha)"); return;
     }
     setFase(accion); setMsg("");
     try {

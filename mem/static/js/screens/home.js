@@ -3,7 +3,7 @@
 // COMPLETA (#chat). Home no muestra sesiones: el buscador de arriba es un panel
 // flotante sobre el chatbox y abrir una de sus filas lleva a la vista completa.
 import { html, useState, useEffect, useRef } from "../../vendor/preact-htm.js";
-import { useStore, setState, go } from "../state.js";
+import { useStore, setState, go, GENERAL } from "../state.js";
 import { dict, MODE_FALLBACK, fechaRelativa } from "../i18n.js";
 import { capturar as encolarCaptura, get, post, del } from "../api.js";
 import { Markdown } from "../md.js";
@@ -12,8 +12,8 @@ import { CornerBrackets, MicButton, Toast, useDictado, dictadoSoportado,
          Camara, camaraSoportada, useProyectos, proyectosListos,
          AccionesAdjunto, norm,
          useAdjuntos, TiraAdjuntos, archivosDelPortapapeles, Alpaca, BTN_ICONO,
-         IndicadorVersion } from "../ui.js";
-import { usePrivado, privadosDe, esSesionPrivada, BotonVerPrivado } from "../privado.js";
+         ChipMenu, itemsDeProyectos } from "../ui.js";
+import { usePrivado, privadosDe, esSesionPrivada } from "../privado.js";
 import { Clima } from "../clima.js";
 
 // botón cuadrado de la barra de acciones: 44px = el piso táctil del brief §7
@@ -89,6 +89,12 @@ export function Home() {
   // buscador de sesiones (arriba del chatbox)
   const [busca, setBusca] = useState("");
   const [abierto, setAbierto] = useState(false);    // panel de sesiones desplegado
+  // arranca en el proyecto donde estás parado, no en "todos" (pedido 2026-09-06):
+  // buscar una sesión es casi siempre buscarla acá dentro. Sigue al sidebar como
+  // el de Memory, y elegir otro acá NO mueve el proyecto de trabajo.
+  const [fProy, setFProy] = useState(String(s.proyecto || ""));   // "" = todos los proyectos
+  const [fModo, setFModo] = useState("");
+  const [fArch, setFArch] = useState("activas");    // activas | archivadas | todas
   const [sesiones, setSesiones] = useState(null);   // null = sin cargar
   const [archivadas, setArchivadas] = useState([]);
   const [modos, setModos] = useState([]);
@@ -121,21 +127,23 @@ export function Home() {
 
   textoRef.current = texto;   // pegado, dictado, borrador restaurado: el ref sigue al state
   const hoy = new Date();
-  const dark = s.theme === "dark";
   const buscando = busca.trim().length > 0;
   // panel visible = se tocó el buscador o hay texto. Ya no depende del foco:
   // perderlo por un re-render cerraba la lista sola.
   const lista = buscando || abierto;
   const enTriaje = conv.length > 0;
 
+  useEffect(() => setFProy(String(s.proyecto || "")), [s.proyecto]);   // sidebar → buscador, no al revés
   useEffect(() => { get("/modes").then(setModos).catch(() => {}); }, []);
 
   // el buscador carga las listas la primera vez que se usa (foco o texto)
+  // ...y las recarga al cambiar de proyecto: /sessions contesta según desde
+  // dónde se pregunta (lo de un proyecto privado no sale de él).
   useEffect(() => {
-    if (!lista || sesiones !== null) return;
+    if (!lista) return;
     get("/sessions").then(setSesiones).catch(() => setSesiones([]));
     get("/sessions?archivadas=1").then(setArchivadas).catch(() => {});
-  }, [lista]);
+  }, [lista, s.proyecto]);
 
   // cerrar el panel es un clic AFUERA, no un blur: el foco se pierde con
   // cualquier re-render (y ahí la lista se cerraba sola — bug reportado).
@@ -370,20 +378,27 @@ export function Home() {
   }, [s.proyecto]);
 
   const q = norm(busca.trim());
-  const hits = !q ? [] : [...(sesiones || []), ...archivadas].filter((x) =>
-    norm([x.titulo, x.modo, (x.subjects || []).join(" ")].join(" ")).includes(q) && !ocultar(x));
-  const hayPrivadas = oculto && proyectosListos() &&
-    [...(sesiones || []), ...archivadas].some(esPriv);
-
+  // Filtros del buscador (pedido 2026-09-05). Son del BUSCADOR, no del proyecto
+  // activo: acá se viene a encontrar una sesión que uno sabe que existe pero no
+  // dónde quedó, así que arrancan en "todos" y pueden mirar fuera del proyecto
+  // en el que uno está parado. Lo privado sigue tapado por `ocultar`.
+  const universo = fArch === "activas" ? (sesiones || [])
+    : fArch === "archivadas" ? archivadas
+    : [...(sesiones || []), ...archivadas];
+  const pasaFiltros = (x) => !ocultar(x)
+    && (!fProy || String(x.proyecto || "") === fProy)
+    && (!fModo || String(x.modo || "chat") === fModo);
+  const hits = !q ? [] : universo.filter((x) =>
+    norm([x.titulo, x.modo, (x.subjects || []).join(" ")].join(" ")).includes(q) && pasaFiltros(x));
   // foco sin texto: las últimas sesiones de nueva a vieja, agrupadas por proyecto
   // (los grupos quedan ordenados por su sesión más reciente, no alfabéticamente)
   const grupos = [];
   if (!q && abierto) {
-    const recientes = [...(sesiones || [])].filter((x) => !ocultar(x))
+    const recientes = universo.filter(pasaFiltros)
       .sort((a, b) => String(b.actualizada || "").localeCompare(String(a.actualizada || "")))
       .slice(0, 15);
     for (const ses of recientes) {
-      const nombre = String(ses.proyecto || "");
+      const nombre = String(ses.proyecto || "") || GENERAL;
       (grupos.find((g) => g.nombre === nombre) || grupos[grupos.push({ nombre, sesiones: [] }) - 1]).sesiones.push(ses);
     }
   }
@@ -425,20 +440,15 @@ export function Home() {
                 <span>${hoy.toLocaleDateString(s.lang === "en" ? "en-GB" : "es-ES", { month: "short" })}</span>
               </span>
             </span>
-            <!-- en escritorio la versión vive en el sidebar (como la mascota):
-                 acá sobraría duplicada -->
-            <${IndicadorVersion} lang=${s.lang} clase="mem-home-ver" />
-            <div role="button" tabindex="0" onClick=${() => setState({ theme: dark ? "light" : "dark", themePref: dark ? "light" : "dark" })}
-                 style="width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:var(--color-surface)">
-              ${dark ? "☾" : "☀"}
-            </div>
-            <div role="button" tabindex="0" onClick=${() => go("settings")}
-                 style="width:44px;height:44px;flex-shrink:0;border-radius:var(--radius-md);border:1px solid var(--color-divider);display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:var(--color-surface)">
-              ⚙
-            </div>
           </div>
 
-          <div class="mem-home-card" ref=${buscaRef} style="position:relative;z-index:2;flex:1;min-height:0;display:flex;flex-direction:column;gap:9px">
+          <!-- z-index 4 y no 2: el card abre su propio contexto de apilado, así
+               que el 6 del buscador de adentro no compite con el 3 de la
+               mascota — compite este número. Con 2, la alpaca quedaba ENCIMA
+               del buscador y su poncho tapaba el placeholder (reportado
+               2026-09-05). Con 4 ella se apoya detrás y solo asoma la cabeza,
+               que es el efecto que se buscaba. -->
+          <div class="mem-home-card" ref=${buscaRef} style="position:relative;z-index:4;flex:1;min-height:0;display:flex;flex-direction:column;gap:9px">
             <!-- BUSCADOR: vive en la banda de la alpaca, indentado a su derecha
                  para no taparla. Sus resultados son un panel flotante que cae
                  sobre el chatbox: ni el input ni la alpaca se mueven. Cerrar es
@@ -459,6 +469,24 @@ export function Home() {
 
             ${lista && html`
               <div class="mem-home-res">
+                  <!-- filtros del buscador (pedido 2026-09-05): salen al abrir el
+                       panel, junto al texto que se escribe arriba. El de proyecto
+                       arranca en "todos" a propósito — buscar es justamente para
+                       encontrar lo que no está en el proyecto donde uno está. -->
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;padding:2px 2px 8px;border-bottom:1px solid var(--color-divider);margin-bottom:6px">
+                    <${ChipMenu} etiqueta=${`◈ ${fProy || L.tSesProyAll}`} on=${!!fProy} ancho=${210}
+                                 items=${itemsDeProyectos(oculto ? proyectosTodos.filter((p) => !p.privado) : proyectosTodos,
+                                                          fProy, [{ id: "", label: L.tSesProyAll }], s.lang)}
+                                 onPick=${setFProy} />
+                    <${ChipMenu} etiqueta=${fModo || L.tSesModoAll} on=${!!fModo} ancho=${190}
+                                 items=${[{ id: "", label: L.tSesModoAll, on: !fModo },
+                                          ...(modos.length ? modos.map((m) => m.nombre) : Object.keys(MODE_FALLBACK))
+                                            .map((n) => ({ id: n, label: n, glyph: (MODE_FALLBACK[n] || MODE_FALLBACK.chat).glyph, on: fModo === n }))]}
+                                 onPick=${setFModo} />
+                    <${ChipMenu} etiqueta=${L.tSesEstado[fArch]} on=${fArch !== "activas"} ancho=${190}
+                                 items=${["activas", "archivadas", "todas"].map((k) => ({ id: k, label: L.tSesEstado[k], on: fArch === k }))}
+                                 onPick=${setFArch} />
+                  </div>
                   ${sesiones === null && html`<div style="opacity:.5;font-size:13px;padding:8px 4px">…</div>`}
                   ${sesiones !== null && buscando && !hits.length && html`
                     <div style="padding:22px 16px;text-align:center;border-radius:var(--radius-md);background:var(--color-bg);border:1px solid var(--color-divider)">
@@ -470,15 +498,11 @@ export function Home() {
                                 onOpen=${() => abrirSesion(ses.id)} onBorrar=${() => pedirBorrado(ses)} />`)}
                   ${!buscando && grupos.map((g) => html`
                     <div style="display:flex;align-items:center;gap:6px;padding:8px 4px 5px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">
-                      ◈ ${g.nombre || L.tProjAll} <span style="opacity:.6">· ${g.sesiones.length}</span>
+                      ◈ ${g.nombre} <span style="opacity:.6">· ${g.sesiones.length}</span>
                     </div>
                     ${g.sesiones.map((ses) => html`
                       <${FilaSes} key=${ses.id} ses=${ses} modos=${modos} lang=${s.lang} theme=${s.theme} L=${L} privada=${esPriv(ses)}
                                   onOpen=${() => abrirSesion(ses.id)} onBorrar=${() => pedirBorrado(ses)} />`)}`)}
-                  ${hayPrivadas && html`
-                    <div style="display:flex;justify-content:center;padding:6px 0 10px">
-                      <${BotonVerPrivado} lang=${s.lang} />
-                    </div>`}
                 </div>`}
 
             <!-- SESIÓN ACTIVA (pedido 2026-08-05): la sesión en la que se está
@@ -489,7 +513,7 @@ export function Home() {
               <div role="button" tabindex="0" onClick=${() => go("chat", s.sesionActiva.id)}
                    style="display:flex;align-items:center;gap:9px;height:36px;padding:0 10px 0 12px;border-radius:var(--radius-md);cursor:pointer;background:var(--color-surface);border:1px solid color-mix(in srgb,var(--color-accent) 50%,var(--color-divider));box-shadow:var(--shadow-sm)">
                 <span style="flex-shrink:0;width:7px;height:7px;border-radius:var(--radius-md);background:var(--color-accent);animation:breathe 2.4s ease-in-out infinite"></span>
-                <span style="flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">${L.tActiveSession} · ${s.sesionActiva.proyecto || L.tProjAll}</span>
+                <span style="flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">${L.tActiveSession} · ${s.sesionActiva.proyecto || GENERAL}</span>
                 <span style="flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.sesionActiva.titulo}</span>
                 <!-- el ✕ vive DENTRO de la fila (antes colgaba afuera y le comía 32px
                      de ancho: la línea no alineaba con el chatbox de abajo). Ocupa el

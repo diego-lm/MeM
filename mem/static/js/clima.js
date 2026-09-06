@@ -14,7 +14,7 @@ import { intervaloVisible } from "./ui.js";
 
 const CACHE = "mem.clima";
 const FRESCO = 30 * 60 * 1000;  // el pronóstico POR HORAS no cambia más rápido que esto
-const COL = 46;                 // ancho de una columna, en px
+const COL = 36;                 // ancho de una columna, en px
 const MAX_COL = 12;
 
 /** Última respuesta buena, o la cacheada si la red falla. Nunca rechaza: sin
@@ -133,7 +133,11 @@ export function Clima({ lang }) {
   if (h) {
     const clave = `${(d.cur?.time || "").slice(0, 13)}:00`;
     i0 = Math.max(0, h.time.indexOf(clave));
-    idx = elegirHoras(h, i0, Math.max(3, Math.min(MAX_COL, Math.floor(ancho / COL) || 3)));
+    // cuantas ENTRAN, no cuantas nos gustaria: el minimo de 3 de antes pedia
+    // 138px y en un celular la tira mide ~112, asi que la tercera columna salia
+    // cortada por el overflow (y por justify-content:flex-end la que se comia
+    // era "ahora"). Mejor dos horas enteras que tres a medias (2026-09-06).
+    idx = elegirHoras(h, i0, Math.max(1, Math.min(MAX_COL, Math.floor(ancho / COL))));
   }
   const iMax = idx.length ? idx.reduce((a, b) => (h.temperature_2m[b] > h.temperature_2m[a] ? b : a)) : -1;
 
